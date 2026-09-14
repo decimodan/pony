@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b1820" />
+  <title>Pony — Hydro Farm</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="crt-overlay"></div>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">✿</span><div><h1>PONY</h1><p>HYDROPONIC FARM OS</p></div></div>
+      <div class="farm-clock"><span class="day-chip">DAY 142</span><span class="season">SPRING  •  TUESDAY</span><strong id="clock">14:32:08</strong></div>
+      <div class="top-actions"><button class="icon-button" title="Notifications" aria-label="Notifications">♧<b>2</b></button><button class="avatar" title="Farm keeper">JD</button></div>
+    </header>
+
+    <section class="game-layout">
+      <section class="map-panel window-frame">
+        <div class="window-title"><span>◈ FARM MAP</span><span class="map-tools"><button class="mini-button active" data-map="garden">GARDEN</button><button class="mini-button" data-map="systems">SYSTEMS</button></span></div>
+        <div class="map-canvas" id="mapCanvas" aria-label="Hydroponic garden map">
+          <div class="map-grid"></div>
+          <div class="map-label label-a">GROW ZONE A <span>· NFT</span></div>
+          <div class="map-label label-b">GROW ZONE B <span>· DWC</span></div>
+          <button class="map-object reservoir" data-entity="reservoir" aria-label="Open Reservoir A"><span class="object-icon">▣</span><strong>RESERVOIR A</strong><small>82% · 420 L</small><i>≈≈≈</i></button>
+          <button class="map-object pump" data-entity="pump" aria-label="Open Pump A"><span class="object-icon">⚙</span><strong>PUMP A</strong><small>RUNNING</small><i class="pulse-dot"></i></button>
+          <button class="map-object nutrients" data-entity="nutrients" aria-label="Open nutrients"><span class="object-icon">⚗</span><strong>NUTRIENTS</strong><small>STOCK: GOOD</small></button>
+          <div class="system-card nft-card"><div class="system-head"><span>NFT CHANNEL A</span><em>ACTIVE</em></div><div class="plant-slots" id="nftSlots"></div><small>18 SLOTS · STRAWBERRIES</small></div>
+          <div class="system-card dwc-card"><div class="system-head"><span>DWC BED B</span><em>ACTIVE</em></div><div class="plant-slots" id="dwcSlots"></div><small>12 SLOTS · HERBS</small></div>
+          <div class="pipe pipe-one"></div><div class="pipe pipe-two"></div>
+          <div class="map-compass">N<br><span>▲</span></div>
+        </div>
+        <div class="map-footer"><span><i class="legend-dot healthy"></i> HEALTHY</span><span><i class="legend-dot warning"></i> NEEDS ATTENTION</span><span><i class="legend-dot empty"></i> EMPTY SLOT</span></div>
+      </section>
+
+      <aside class="sidebar">
+        <section class="window-frame status-window"><div class="window-title"><span>♥ FARM STATUS</span><button class="dots">•••</button></div><div class="health-banner"><span class="sun-icon">☼</span><div><strong>ALL SYSTEMS GROWING</strong><small>Last sync 14:31:58</small></div><span class="status-live">LIVE</span></div><div class="metrics"><div class="metric"><span class="metric-icon ph">pH</span><div><small>RESERVOIR PH</small><strong>5.9 <b>✓</b></strong></div><em>5.5—6.2</em></div><div class="metric"><span class="metric-icon ec">⚡</span><div><small>EC LEVEL</small><strong>1.8 <b>✓</b></strong></div><em>1.5—2.2</em></div><div class="metric"><span class="metric-icon temp">°C</span><div><small>ROOT TEMP</small><strong>21.4 <b>✓</b></strong></div><em>19—24</em></div><div class="metric"><span class="metric-icon water">≈</span><div><small>WATER LEVEL</small><strong>82% <b>✓</b></strong></div><em>GOOD</em></div></div></section>
+        <section class="window-frame events-window"><div class="window-title"><span>✦ EVENT FEED</span><button class="link-button">VIEW ALL</button></div><div class="events" id="events"><div class="event"><time>14:21</time><span class="event-icon blue">↻</span><p><b>Pump A</b> started irrigation cycle<small>automatic routine</small></p></div><div class="event"><time>14:18</time><span class="event-icon green">✿</span><p><b>Strawberry #04</b> entered flowering<small>growth milestone</small></p></div><div class="event"><time>14:02</time><span class="event-icon purple">⚗</span><p><b>Nutrient A</b> +10 ml added<small>by Jordan</small></p></div><div class="event"><time>13:43</time><span class="event-icon amber">!</span><p><b>Reservoir pH</b> reached 6.4<small>resolved · 13:51</small></p></div><div class="event"><time>12:32</time><span class="event-icon red">♥</span><p><b>Harvested</b> 230 g strawberries<small>+460 FARM XP</small></p></div></div></section>
+      </aside>
+    </section>
+
+    <section class="bottom-grid"><section class="window-frame quest-window"><div class="window-title"><span>☷ TODAY'S QUESTS</span><span class="xp">+20 FARM XP</span></div><div class="quests"><label class="quest done"><input type="checkbox" checked><span class="check"></span><span>Check reservoir level</span><em>DONE</em></label><label class="quest done"><input type="checkbox" checked><span class="check"></span><span>Inspect strawberry roots</span><em>DONE</em></label><label class="quest"><input type="checkbox"><span class="check"></span><span>Calibrate pH sensor</span><em>+10 XP</em></label><label class="quest"><input type="checkbox"><span class="check"></span><span>Clean filter</span><em>+10 XP</em></label></div></section><section class="window-frame harvest-window"><div class="window-title"><span>✿ HARVEST LOG</span><button class="link-button">STATISTICS →</button></div><div class="harvest-stats"><div><small>TODAY</small><strong>420<em>g</em></strong><span>strawberries</span></div><div><small>THIS MONTH</small><strong>8.4<em>kg</em></strong><span>+12% from last month</span></div><div><small>ALL TIME</small><strong>42.7<em>kg</em></strong><span>68 harvests</span></div></div></section></section>
+
+    <nav class="bottom-nav"><button class="nav-item active" data-nav="MAP"><span>⌂</span>MAP</button><button class="nav-item" data-nav="PLANTS"><span>✿</span>PLANTS <b>42</b></button><button class="nav-item" data-nav="SYSTEMS"><span>▦</span>SYSTEMS</button><button class="nav-item" data-nav="INVENTORY"><span>▤</span>INVENTORY</button><button class="nav-item" data-nav="STATS"><span>◒</span>STATS</button><button class="nav-item" data-nav="SETTINGS"><span>⚙</span>SETTINGS</button></nav>
+  </main>
+
+  <dialog class="detail-dialog" id="detailDialog"><button class="close-dialog" id="closeDialog" aria-label="Close">×</button><div id="dialogContent"></div></dialog>
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
