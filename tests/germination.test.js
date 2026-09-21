@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, normalizeTray, resizeTray, stageFor, TRAY_STORAGE_KEY,
+  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, normalizeTray, renderTray, resizeTray, stageFor, TRAY_STORAGE_KEY,
 } from '../germination.js';
 import { resolveDestination } from '../navigation.js';
 
@@ -33,6 +33,12 @@ test('normalizes valid tray values and rejects corrupt/unsafe fields', () => {
   assert.equal(legacyMismatch.capacity, 90);
   assert.equal(legacyMismatch.cellSeeds[39], 'Cherry');
   assert.equal(legacyMismatch.cellSeeds[72], null);
+  const rectangle = normalizeTray({ ...sample, size: '9×14', capacity: 126, seeded: 0 });
+  assert.equal(rectangle.rows, 9);
+  assert.equal(rectangle.columns, 14);
+  assert.equal(rectangle.capacity, 126);
+  assert.match(renderTray(rectangle), /--tray-cols:14/);
+  assert.equal(normalizeTray({ ...sample, size: '9×12', capacity: 126 }).capacity, 108);
   assert.equal(normalizeTray({ ...sample, cellSeeds: ['Cherry', null, 'Romaine'] }).seeded, 2);
   const iconData = normalizeTray({ ...sample, size: '1×2', capacity: 2, seeded: 0,
     cellSeeds: ['Arugula', 'Romaine'], cellIcons: ['basil', 'unknown'],
@@ -42,7 +48,7 @@ test('normalizes valid tray values and rejects corrupt/unsafe fields', () => {
   assert.equal(inferPlantIcon('Fresa'), 'strawberry');
   assert.equal(inferPlantIcon('Menta'), 'basil');
   assert.equal(normalizeTray({ ...sample, size: '1×2', cellSeeds: ['Cherry', null, 'Romaine'], capacity: 2 }).cellSeeds.length, 2);
-  assert.equal(normalizeTray({ ...sample, capacity: 241 }), null);
+  assert.equal(normalizeTray({ ...sample, size: '16×16', capacity: 241 }), null);
   assert.equal(normalizeTray({ ...sample, seeded: -1 }), null);
   assert.equal(normalizeTray({ ...sample, seeded: 73 }), null);
   assert.equal(normalizeTray({ ...sample, sown: '2026-02-31' }), null);

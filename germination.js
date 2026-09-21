@@ -32,7 +32,8 @@ export function normalizeTray(value) {
     }
   }
   if (!Number.isInteger(rows) || !Number.isInteger(columns) || rows < 1 || columns < 1) return null;
-  if (Number.isInteger(legacyCapacity) && legacyCapacity > rows * columns) rows = Math.ceil(legacyCapacity / columns);
+  // The dimensions are authoritative. A stale legacy capacity must never silently
+  // change the requested row count (or turn a rectangle into a different shape).
   const capacity = rows * columns;
   const tray = {
     id, name: text('name'), size: `${rows}×${columns}`, rows, columns, capacity,
@@ -394,7 +395,7 @@ export function mountGermination(document, ui, storage = safeStorage()) {
   render();
 }
 
-function renderTray(tray, { multiSelecting = false, selectedCells = new Set() } = {}) {
+export function renderTray(tray, { multiSelecting = false, selectedCells = new Set() } = {}) {
   const filled = tray.cellSeeds.filter(Boolean).length;
   const days = daysSince(tray.sown);
   const cells = tray.cellSeeds.map((seed, index) => {
@@ -416,7 +417,7 @@ function renderTray(tray, { multiSelecting = false, selectedCells = new Set() } 
   }).join('');
   const selectedCount = selectedCells.size;
   const selectionToolbar = multiSelecting ? `<div class="cell-selection-toolbar"><span aria-live="polite">${selectedCount} CELDAS SELECCIONADAS</span><button class="pixel-action" type="button" data-plant-selected="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>SEMBRAR SELECCIONADAS</button><button class="link-button" type="button" data-clear-selection="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>LIMPIAR</button></div>` : '';
-  return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${Math.min(12, tray.columns)}">${cells}</div>${selectionToolbar}<div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-cell-selection="${escapeHTML(tray.id)}" aria-pressed="${multiSelecting}">${multiSelecting ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR CELDAS'}</button><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
+  return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${tray.columns}">${cells}</div>${selectionToolbar}<div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-cell-selection="${escapeHTML(tray.id)}" aria-pressed="${multiSelecting}">${multiSelecting ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR CELDAS'}</button><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
 }
 
 function escapeHTML(value) {
