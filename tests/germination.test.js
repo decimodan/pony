@@ -154,6 +154,11 @@ test('records watering history for planted cells only', () => {
   assert.deepEqual(watered.cellWaterings[1], []);
   assert.match(renderTray(watered), /cell-water-indicator/);
   assert.match(renderTray(watered), /Último riego 21\/09\/2026 · 09:30/);
+  const selectionMarkup = renderTray(watered, { multiSelecting: true, selectedCells: new Set([0, 1, 2]) });
+  assert.match(selectionMarkup, /data-water-selected="tray-a"[^>]*Regar 2 celdas sembradas/);
+  assert.match(selectionMarkup, /REGAR SELECCIONADAS/);
+  assert.doesNotMatch(selectionMarkup, /bulkWateringForm/);
+  assert.match(renderTray(watered, { multiSelecting: true, selectedCells: new Set([1]) }), /data-water-selected="tray-a"[^>]*disabled/);
   const newer = waterCells(watered, [0], { at: '2026-09-21T10:00' });
   assert.equal(newer.cellWaterings[0].length, 2);
   assert.equal(waterCells(newer, [0], { at: '2026-09-19T10:00' }).cellWaterings[0].at(-1).at, '2026-09-21T10:00');

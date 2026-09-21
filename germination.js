@@ -438,38 +438,6 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     });
   }
 
-  function openBulkWateringForm(tray) {
-    const indices = [...selectedCells].filter(index => tray.cellSeeds[index]).sort((a, b) => a - b);
-    if (!indices.length) {
-      ui.toast('Selecciona al menos una celda sembrada.');
-      return;
-    }
-    ui.showDialog(`<form class="detail-content tray-form" id="bulkWateringForm"><div class="subtitle">${escapeHTML(tray.name)} · ${indices.length} SEMILLAS</div><h2>REGISTRAR RIEGO</h2><p class="cell-form-hint">El riego quedará registrado en cada una de las celdas sembradas seleccionadas.</p>${wateringInputsHTML({ required: true })}<div class="detail-actions"><button class="pixel-action" type="submit">REGISTRAR EN ${indices.length} CELDAS</button></div></form>`);
-    const form = document.querySelector('#bulkWateringForm');
-    form?.addEventListener('submit', event => {
-      event.preventDefault();
-      if (!form.reportValidity()) return;
-      const values = new FormData(form);
-      let next;
-      try {
-        const updated = waterCells(tray, indices, {
-          at: `${values.get('wateringDate')}T${values.get('wateringTime')}`,
-          amountMl: values.get('amountMl'), note: values.get('wateringNote'),
-        });
-        next = repository.save(updated, tray.id);
-      } catch (error) {
-        ui.toast(error?.message || 'No se pudieron registrar los riegos.');
-        return;
-      }
-      multiSelectTrayId = '';
-      selectedCells = new Set();
-      if (apply(next)) {
-        ui.closeDialog();
-        ui.toast(`Riego registrado en ${indices.length} celdas.`);
-      }
-    });
-  }
-
   addButton.addEventListener('click', () => openForm());
   document.defaultView?.addEventListener('storage', event => {
     if (event.key !== TRAY_STORAGE_KEY) return;
@@ -525,7 +493,22 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     }
     if (bulkWater) {
       const tray = trays.find(item => item.id === bulkWater.dataset.waterSelected);
-      if (tray) openBulkWateringForm(tray);
+      const indices = tray ? [...selectedCells].filter(index => tray.cellSeeds[index]).sort((a, b) => a - b) : [];
+      if (!tray || !indices.length) {
+        ui.toast('Selecciona al menos una celda sembrada.');
+        return;
+      }
+      const now = localDateTimeInputValue();
+      try {
+        const updated = waterCells(tray, indices, {
+          at: `${now.date}T${now.time}`, amountMl: null, note: '',
+        });
+        const next = repository.save(updated, tray.id);
+        selectedCells = new Set();
+        if (apply(next)) ui.toast(`Riego registrado en ${indices.length} celdas.`);
+      } catch (error) {
+        ui.toast(error?.message || 'No se pudieron registrar los riegos.');
+      }
       return;
     }
     if (clearSelection) {
@@ -608,7 +591,7 @@ export function renderTray(tray, { multiSelecting = false, selectedCells = new S
   }).join('');
   const selectedCount = selectedCells.size;
   const selectedPlantedCount = [...selectedCells].filter(index => tray.cellSeeds[index]).length;
-  const selectionToolbar = multiSelecting ? `<div class="cell-selection-toolbar"><span aria-live="polite">${selectedCount} CELDAS · ${selectedPlantedCount} SEMBRADAS</span><button class="pixel-action" type="button" data-plant-selected="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>SEMBRAR SELECCIONADAS</button><button class="pixel-action" type="button" data-water-selected="${escapeHTML(tray.id)}" ${selectedPlantedCount ? '' : 'disabled'}>REGISTRAR RIEGO</button><button class="link-button" type="button" data-clear-selection="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>LIMPIAR</button></div>` : '';
+  const selectionToolbar = multiSelecting ? `<div class="cell-selection-toolbar"><span aria-live="polite">${selectedCount} CELDAS · ${selectedPlantedCount} SEMBRADAS</span><button class="pixel-action watering-action" type="button" data-water-selected="${escapeHTML(tray.id)}" aria-label="Regar ${selectedPlantedCount} celdas sembradas" title="Registrar riego ahora en las celdas sembradas seleccionadas" ${selectedPlantedCount ? '' : 'disabled'}><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M9 20h20a4 4 0 0 1 4 4v14H9zM13 20v-4a7 7 0 0 1 14 0v4M33 24l8-5 3 4-11 8M9 25H4v9h5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="round"/><path d="M39 12v2m5 1-1 2m-9-4 1 2" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square"/></svg><span>REGAR SELECCIONADAS</span></button><button class="pixel-action" type="button" data-plant-selected="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>SEMBRAR SELECCIONADAS</button><button class="link-button" type="button" data-clear-selection="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>LIMPIAR</button></div>` : '';
   const moveToolbar = moving ? `<div class="cell-selection-toolbar move-cell-toolbar"><span aria-live="polite">${moveSourceIndex === null ? 'ELIGE UNA CELDA SEMBRADA COMO ORIGEN' : `ORIGEN: CELDA ${moveSourceIndex + 1} · ELIGE UN DESTINO VACÍO`}</span><button class="link-button" type="button" data-cancel-cell-move="${escapeHTML(tray.id)}">CANCELAR</button></div>` : '';
   return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${tray.columns}">${cells}</div>${selectionToolbar}${moveToolbar}<div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-cell-move="${escapeHTML(tray.id)}" aria-pressed="${moving}">${moving ? 'CANCELAR MOVER' : 'MOVER CELDAS'}</button><button class="link-button" type="button" data-cell-selection="${escapeHTML(tray.id)}" aria-pressed="${multiSelecting}">${multiSelecting ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR CELDAS'}</button><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
 }
@@ -627,11 +610,9 @@ function localDateTimeInputValue(now = new Date()) {
   return { date: value.slice(0, 10), time: value.slice(11) };
 }
 
-function wateringInputsHTML({ required = false } = {}) {
+function wateringInputsHTML() {
   const value = localDateTimeInputValue();
-  const requiredAttribute = required ? 'required' : '';
-  const amountLimits = required ? 'min="1" max="10000"' : '';
-  return `<div class="watering-fields"><label>Fecha<input lang="es-MX" name="wateringDate" type="date" ${requiredAttribute} value="${value.date}"></label><label>Hora<input lang="es-MX" name="wateringTime" type="time" ${requiredAttribute} value="${value.time}"></label><label>Cantidad (ml, opcional)<input name="amountMl" type="number" ${amountLimits} step="any" placeholder="Ej. 20"></label><label>Nota (opcional)<input name="wateringNote" maxlength="160" placeholder="Ej. Humedecí el sustrato"></label></div>`;
+  return `<div class="watering-fields"><label>Fecha<input lang="es-MX" name="wateringDate" type="date" value="${value.date}"></label><label>Hora<input lang="es-MX" name="wateringTime" type="time" value="${value.time}"></label><label>Cantidad (ml, opcional)<input name="amountMl" type="number" step="any" placeholder="Ej. 20"></label><label>Nota (opcional)<input name="wateringNote" maxlength="160" placeholder="Ej. Humedecí el sustrato"></label></div>`;
 }
 
 function formatWateringDateTime(value) {
