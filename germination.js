@@ -1,5 +1,14 @@
 export const TRAY_STORAGE_KEY = 'pony.germination.trays.v1';
 export const MAX_TRAY_CELLS = 240;
+export const PLANT_ICONS = [
+  { key: 'seedling', label: 'Planta', symbol: '🌱' },
+  { key: 'tomato', label: 'Tomate', symbol: '🍅' },
+  { key: 'lettuce', label: 'Lechuga', symbol: '🥬' },
+  { key: 'basil', label: 'Albahaca', symbol: '🌿' },
+  { key: 'pepper', label: 'Chile', symbol: '🌶️' },
+  { key: 'strawberry', label: 'Fresa', symbol: '🍓' },
+  { key: 'cucumber', label: 'Pepino', symbol: '🥒' },
+];
 const validDate = value => {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split('-').map(Number);
@@ -27,6 +36,12 @@ export function normalizeTray(value) {
       return typeof seed === 'string' && seed.trim() ? seed.trim().slice(0, 100) : null;
     })
     : Array.from({ length: capacity }, (_, index) => index < legacySeeded && tray.seed ? tray.seed : null);
+  tray.cellIcons = tray.cellSeeds.map((seed, index) => seed
+    ? (PLANT_ICONS.some(icon => icon.key === value.cellIcons?.[index]) ? value.cellIcons[index] : inferPlantIcon(seed))
+    : null);
+  tray.cellPlantedAt = tray.cellSeeds.map((seed, index) => seed
+    ? (validDate(value.cellPlantedAt?.[index]) ? value.cellPlantedAt[index] : tray.sown)
+    : null);
   tray.seeded = tray.cellSeeds.filter(Boolean).length;
   return tray;
 }
@@ -88,6 +103,23 @@ export function stageFor(days) {
   if (days < 8) return 'GERMINANDO';
   if (days < 18) return 'PLÁNTULA';
   return 'LISTA PARA TRASPLANTE';
+}
+
+export function cellGrowthStage(days) {
+  if (days < 3) return { key: 'seed', label: 'SEMILLA' };
+  if (days < 8) return { key: 'sprout', label: 'BROTE' };
+  return { key: 'plant', label: days < 18 ? 'PLÁNTULA' : 'LISTA PARA TRASPLANTE' };
+}
+
+export function inferPlantIcon(seedName) {
+  const name = String(seedName || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/fresa|strawberr/.test(name)) return 'strawberry';
+  if (/lechuga|arugula|espinaca|kale/.test(name)) return 'lettuce';
+  if (/menta|hierbabuena|albahaca|cilantro|romero|perejil|oregano|basil/.test(name)) return 'basil';
+  if (/chile|pimiento|jalap|serrano|pepper/.test(name)) return 'pepper';
+  if (/pepino|cucumber/.test(name)) return 'cucumber';
+  if (/tomate|jitomate|tomato/.test(name)) return 'tomato';
+  return 'seedling';
 }
 
 export function mountGermination(document, ui, storage = safeStorage()) {
@@ -159,13 +191,19 @@ export function mountGermination(document, ui, storage = safeStorage()) {
 
   function openCellForm(tray, index) {
     const currentSeed = tray.cellSeeds[index] || '';
-    ui.showDialog(`<form class="detail-content tray-form" id="cellForm"><div class="subtitle">CHAROLA · ${escapeHTML(tray.name)}</div><h2>CELDA ${index + 1}</h2><label>Semilla / variedad<input name="seed" maxlength="100" placeholder="Ej. Lechuga romana" value="${escapeHTML(currentSeed || tray.seed)}"></label><small class="cell-form-hint">Deja vacía la celda para marcarla como libre.</small><div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CELDA</button><button class="link-button" type="button" id="clearCell">VACIAR CELDA</button></div></form>`);
+    const currentIcon = tray.cellIcons[index] || inferPlantIcon(currentSeed || tray.seed);
+    const iconOptions = PLANT_ICONS.map(icon => `<label class="plant-icon-option"><input type="radio" name="icon" value="${icon.key}" ${currentIcon === icon.key ? 'checked' : ''}><span>${icon.symbol}</span><small>${icon.label}</small></label>`).join('');
+    ui.showDialog(`<form class="detail-content tray-form" id="cellForm"><div class="subtitle">CHAROLA · ${escapeHTML(tray.name)}</div><h2>CELDA ${index + 1}</h2><label>Semilla / variedad<input name="seed" maxlength="100" placeholder="Ej. Lechuga romana" value="${escapeHTML(currentSeed || tray.seed)}"></label><fieldset class="icon-picker"><legend>Icono de la planta</legend><div class="plant-icon-options">${iconOptions}</div></fieldset><label>Fecha de siembra<input name="plantedAt" type="date" required value="${tray.cellPlantedAt[index] || tray.sown || todayISO()}"></label><p class="cell-form-hint">La celda empieza como semilla y evoluciona con los días.</p><div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CELDA</button><button class="link-button" type="button" id="clearCell">VACIAR CELDA</button></div></form>`);
     const form = document.querySelector('#cellForm');
-    const saveCell = seed => {
+    const saveCell = (seed, icon = currentIcon, plantedAt = tray.sown) => {
       const cellSeeds = [...tray.cellSeeds];
+      const cellIcons = [...tray.cellIcons];
+      const cellPlantedAt = [...tray.cellPlantedAt];
       cellSeeds[index] = seed || null;
+      cellIcons[index] = seed ? icon : null;
+      cellPlantedAt[index] = seed ? plantedAt : null;
       try {
-        const next = repository.save({ ...tray, cellSeeds }, tray.id);
+        const next = repository.save({ ...tray, cellSeeds, cellIcons, cellPlantedAt }, tray.id);
         if (apply(next)) ui.closeDialog();
       } catch {
         ui.toast('No se pudo guardar esta celda.');
@@ -173,7 +211,9 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     };
     form?.addEventListener('submit', event => {
       event.preventDefault();
-      saveCell(new FormData(form).get('seed').trim());
+      if (!form.reportValidity()) return;
+      const values = new FormData(form);
+      saveCell(values.get('seed').trim(), values.get('icon'), values.get('plantedAt'));
     });
     document.querySelector('#clearCell')?.addEventListener('click', () => saveCell(''));
   }
@@ -209,7 +249,21 @@ export function mountGermination(document, ui, storage = safeStorage()) {
 function renderTray(tray) {
   const filled = tray.cellSeeds.filter(Boolean).length;
   const days = daysSince(tray.sown);
-  const cells = tray.cellSeeds.map((seed, index) => `<button class="tray-cell${seed ? ' sown' : ''}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" title="Celda ${index + 1}: ${seed ? escapeHTML(seed) : 'vacía'}" aria-label="Celda ${index + 1}: ${seed ? escapeHTML(seed) : 'vacía'}">${seed ? `<span>✿</span><small>${escapeHTML(seed)}</small>` : '·'}</button>`).join('');
+  const cells = tray.cellSeeds.map((seed, index) => {
+    if (!seed) return `<button class="tray-cell" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" title="Celda ${index + 1}: vacía" aria-label="Celda ${index + 1}: vacía">·</button>`;
+    const plantedAt = tray.cellPlantedAt[index] || tray.sown;
+    const age = daysSince(plantedAt);
+    const stage = cellGrowthStage(age);
+    const icon = PLANT_ICONS.find(item => item.key === tray.cellIcons[index]) || PLANT_ICONS[0];
+    const visual = stage.key === 'seed'
+      ? '<span class="growth-sprite growth-seed"><i></i></span>'
+      : stage.key === 'sprout'
+        ? '<span class="growth-sprite growth-sprout"><i></i><b></b><b></b></span>'
+        : `<span class="growth-sprite growth-plant">${icon.symbol}</span>`;
+    const seedIndicator = stage.key === 'plant' ? '' : `<span class="crop-badge" aria-hidden="true">${icon.symbol}</span>`;
+    const label = `Celda ${index + 1}: ${seed}, ${stage.label.toLowerCase()}, día ${age + 1}`;
+    return `<button class="tray-cell sown" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" title="${escapeHTML(label)}" aria-label="${escapeHTML(label)}"><span class="cell-icon-box">${visual}${seedIndicator}</span><small>${escapeHTML(seed)}</small></button>`;
+  }).join('');
   return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${Math.min(12, Math.ceil(Math.sqrt(tray.capacity)))}">${cells}</div><div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
 }
 

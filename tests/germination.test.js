@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createTrayRepository, daysSince, normalizeTray, stageFor, TRAY_STORAGE_KEY,
+  cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, normalizeTray, stageFor, TRAY_STORAGE_KEY,
 } from '../germination.js';
 import { resolveDestination } from '../navigation.js';
 
@@ -25,7 +25,16 @@ test('normalizes valid tray values and rejects corrupt/unsafe fields', () => {
   assert.equal(normalized.cellSeeds.length, 72);
   assert.equal(normalized.cellSeeds[0], 'Cherry');
   assert.equal(normalized.cellSeeds[40], null);
+  assert.equal(normalized.cellIcons[0], 'seedling');
+  assert.equal(normalized.cellPlantedAt[0], sample.sown);
   assert.equal(normalizeTray({ ...sample, cellSeeds: ['Cherry', null, 'Romaine'] }).seeded, 2);
+  const iconData = normalizeTray({ ...sample, capacity: 2, seeded: 0,
+    cellSeeds: ['Arugula', 'Romaine'], cellIcons: ['basil', 'unknown'],
+    cellPlantedAt: ['2026-09-19', 'bad-date'] });
+  assert.deepEqual(iconData.cellIcons, ['basil', 'seedling']);
+  assert.deepEqual(iconData.cellPlantedAt, ['2026-09-19', sample.sown]);
+  assert.equal(inferPlantIcon('Fresa'), 'strawberry');
+  assert.equal(inferPlantIcon('Menta'), 'basil');
   assert.equal(normalizeTray({ ...sample, cellSeeds: ['Cherry', null, 'Romaine'], capacity: 2 }).cellSeeds.length, 2);
   assert.equal(normalizeTray({ ...sample, capacity: 241 }), null);
   assert.equal(normalizeTray({ ...sample, seeded: -1 }), null);
@@ -77,6 +86,11 @@ test('growth age uses calendar days and clamps future dates', () => {
   assert.equal(stageFor(3), 'GERMINANDO');
   assert.equal(stageFor(8), 'PLÁNTULA');
   assert.equal(stageFor(18), 'LISTA PARA TRASPLANTE');
+  assert.equal(cellGrowthStage(0).key, 'seed');
+  assert.equal(cellGrowthStage(2).label, 'SEMILLA');
+  assert.equal(cellGrowthStage(3).key, 'sprout');
+  assert.equal(cellGrowthStage(8).key, 'plant');
+  assert.equal(cellGrowthStage(18).label, 'LISTA PARA TRASPLANTE');
 });
 
 test('navigation resolves accented and unaccented germination labels', () => {
