@@ -158,6 +158,27 @@ export function assignSeedsToCells(value, indices, { seed, icon, plantedAt }) {
   return normalizeTray({ ...tray, cellSeeds, cellIcons, cellPlantedAt });
 }
 
+export function moveCell(value, sourceIndex, destinationIndex) {
+  const tray = normalizeTray(value);
+  if (!tray || !Number.isInteger(sourceIndex) || !Number.isInteger(destinationIndex)
+    || sourceIndex < 0 || sourceIndex >= tray.capacity || destinationIndex < 0 || destinationIndex >= tray.capacity) {
+    throw new RangeError('Selecciona dos celdas válidas de la charola.');
+  }
+  if (sourceIndex === destinationIndex) return tray;
+  if (!tray.cellSeeds[sourceIndex]) throw new TypeError('La celda de origen está vacía.');
+  if (tray.cellSeeds[destinationIndex]) throw new TypeError('Elige una celda de destino vacía.');
+  const cellSeeds = [...tray.cellSeeds];
+  const cellIcons = [...tray.cellIcons];
+  const cellPlantedAt = [...tray.cellPlantedAt];
+  cellSeeds[destinationIndex] = cellSeeds[sourceIndex];
+  cellIcons[destinationIndex] = cellIcons[sourceIndex];
+  cellPlantedAt[destinationIndex] = cellPlantedAt[sourceIndex];
+  cellSeeds[sourceIndex] = null;
+  cellIcons[sourceIndex] = null;
+  cellPlantedAt[sourceIndex] = null;
+  return normalizeTray({ ...tray, cellSeeds, cellIcons, cellPlantedAt });
+}
+
 export function resizeTray(value, rows, columns) {
   const tray = normalizeTray(value);
   if (!tray || !Number.isInteger(rows) || !Number.isInteger(columns) || rows < 1 || columns < 1) {
@@ -177,6 +198,8 @@ export function mountGermination(document, ui, storage = safeStorage()) {
   let trays = repository.read();
   let multiSelectTrayId = '';
   let selectedCells = new Set();
+  let moveTrayId = '';
+  let moveSourceIndex = null;
 
   function apply(nextTrays) {
     try {
@@ -211,6 +234,8 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     list.innerHTML = trays.map(tray => renderTray(tray, {
       multiSelecting: multiSelectTrayId === tray.id,
       selectedCells: multiSelectTrayId === tray.id ? selectedCells : new Set(),
+      moving: moveTrayId === tray.id,
+      moveSourceIndex: moveTrayId === tray.id ? moveSourceIndex : null,
     })).join('');
   }
 
@@ -344,12 +369,16 @@ export function mountGermination(document, ui, storage = safeStorage()) {
   });
   list.addEventListener('click', event => {
     const selectionMode = event.target.closest('[data-cell-selection]');
+    const moveMode = event.target.closest('[data-cell-move]');
+    const cancelMove = event.target.closest('[data-cancel-cell-move]');
     const bulkPlant = event.target.closest('[data-plant-selected]');
     const clearSelection = event.target.closest('[data-clear-selection]');
     const cell = event.target.closest('[data-cell-index]');
     const edit = event.target.closest('[data-edit-tray]');
     const remove = event.target.closest('[data-remove-tray]');
     if (selectionMode) {
+      moveTrayId = '';
+      moveSourceIndex = null;
       if (multiSelectTrayId === selectionMode.dataset.cellSelection) {
         multiSelectTrayId = '';
         selectedCells = new Set();
@@ -357,6 +386,25 @@ export function mountGermination(document, ui, storage = safeStorage()) {
         multiSelectTrayId = selectionMode.dataset.cellSelection;
         selectedCells = new Set();
       }
+      render();
+      return;
+    }
+    if (moveMode) {
+      multiSelectTrayId = '';
+      selectedCells = new Set();
+      if (moveTrayId === moveMode.dataset.cellMove) {
+        moveTrayId = '';
+        moveSourceIndex = null;
+      } else {
+        moveTrayId = moveMode.dataset.cellMove;
+        moveSourceIndex = null;
+      }
+      render();
+      return;
+    }
+    if (cancelMove) {
+      moveTrayId = '';
+      moveSourceIndex = null;
       render();
       return;
     }
@@ -372,7 +420,29 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     }
     if (cell) {
       const tray = trays.find(item => item.id === cell.dataset.trayId);
-      if (tray && multiSelectTrayId === tray.id) {
+      if (tray && moveTrayId === tray.id) {
+        const index = Number(cell.dataset.cellIndex);
+        if (moveSourceIndex === null) {
+          if (!tray.cellSeeds[index]) {
+            ui.toast('Primero toca una celda sembrada para elegir el origen.');
+            return;
+          }
+          moveSourceIndex = index;
+          render();
+        } else if (moveSourceIndex === index) {
+          moveSourceIndex = null;
+          render();
+        } else {
+          try {
+            const updated = moveCell(tray, moveSourceIndex, index);
+            const next = repository.save(updated, tray.id);
+            moveSourceIndex = null;
+            if (apply(next)) ui.toast('Celda movida.');
+          } catch (error) {
+            ui.toast(error?.message || 'No se pudo mover la celda.');
+          }
+        }
+      } else if (tray && multiSelectTrayId === tray.id) {
         const index = Number(cell.dataset.cellIndex);
         if (selectedCells.has(index)) selectedCells.delete(index);
         else selectedCells.add(index);
@@ -395,12 +465,14 @@ export function mountGermination(document, ui, storage = safeStorage()) {
   render();
 }
 
-export function renderTray(tray, { multiSelecting = false, selectedCells = new Set() } = {}) {
+export function renderTray(tray, { multiSelecting = false, selectedCells = new Set(), moving = false, moveSourceIndex = null } = {}) {
   const filled = tray.cellSeeds.filter(Boolean).length;
   const days = daysSince(tray.sown);
   const cells = tray.cellSeeds.map((seed, index) => {
     const selected = selectedCells.has(index);
-    if (!seed) return `<button class="tray-cell${selected ? ' selected-cell' : ''}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected}" title="Celda ${index + 1}: vacía${multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}" aria-label="Celda ${index + 1}: vacía${multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}">·</button>`;
+    const movingSource = moving && moveSourceIndex === index;
+    const stateClass = `${selected ? ' selected-cell' : ''}${movingSource ? ' move-source-cell' : ''}`;
+    if (!seed) return `<button class="tray-cell${stateClass}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected || movingSource}" title="Celda ${index + 1}: vacía${moving ? (moveSourceIndex === null ? ', elige primero una celda sembrada' : ', destino disponible') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}" aria-label="Celda ${index + 1}: vacía${moving ? (moveSourceIndex === null ? ', elige primero una celda sembrada' : ', destino disponible') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}">·</button>`;
     const plantedAt = tray.cellPlantedAt[index] || tray.sown;
     const age = daysSince(plantedAt);
     const stage = cellGrowthStage(age);
@@ -412,12 +484,13 @@ export function renderTray(tray, { multiSelecting = false, selectedCells = new S
         : `<span class="growth-sprite growth-plant">${icon.symbol}</span>`;
     const seedIndicator = stage.key === 'plant' ? '' : `<span class="crop-badge" aria-hidden="true">${icon.symbol}</span>`;
     const label = `Celda ${index + 1}: ${seed}, ${stage.label.toLowerCase()}, día ${age + 1}`;
-    const cellLabel = `${label}${multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}`;
-    return `<button class="tray-cell sown${selected ? ' selected-cell' : ''}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected}" title="${escapeHTML(cellLabel)}" aria-label="${escapeHTML(cellLabel)}"><span class="cell-icon-box">${visual}${seedIndicator}</span><small>${escapeHTML(seed)}</small></button>`;
+    const cellLabel = `${label}${moving ? (movingSource ? ', origen seleccionado' : moveSourceIndex === null ? ', toca para seleccionar como origen' : ', destino ocupado') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}`;
+    return `<button class="tray-cell sown${stateClass}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected || movingSource}" title="${escapeHTML(cellLabel)}" aria-label="${escapeHTML(cellLabel)}"><span class="cell-icon-box">${visual}${seedIndicator}</span><small>${escapeHTML(seed)}</small></button>`;
   }).join('');
   const selectedCount = selectedCells.size;
   const selectionToolbar = multiSelecting ? `<div class="cell-selection-toolbar"><span aria-live="polite">${selectedCount} CELDAS SELECCIONADAS</span><button class="pixel-action" type="button" data-plant-selected="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>SEMBRAR SELECCIONADAS</button><button class="link-button" type="button" data-clear-selection="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>LIMPIAR</button></div>` : '';
-  return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${tray.columns}">${cells}</div>${selectionToolbar}<div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-cell-selection="${escapeHTML(tray.id)}" aria-pressed="${multiSelecting}">${multiSelecting ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR CELDAS'}</button><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
+  const moveToolbar = moving ? `<div class="cell-selection-toolbar move-cell-toolbar"><span aria-live="polite">${moveSourceIndex === null ? 'ELIGE UNA CELDA SEMBRADA COMO ORIGEN' : `ORIGEN: CELDA ${moveSourceIndex + 1} · ELIGE UN DESTINO VACÍO`}</span><button class="link-button" type="button" data-cancel-cell-move="${escapeHTML(tray.id)}">CANCELAR</button></div>` : '';
+  return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${tray.columns}">${cells}</div>${selectionToolbar}${moveToolbar}<div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-cell-move="${escapeHTML(tray.id)}" aria-pressed="${moving}">${moving ? 'CANCELAR MOVER' : 'MOVER CELDAS'}</button><button class="link-button" type="button" data-cell-selection="${escapeHTML(tray.id)}" aria-pressed="${multiSelecting}">${multiSelecting ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR CELDAS'}</button><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
 }
 
 function escapeHTML(value) {

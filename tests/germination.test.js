@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, normalizeTray, renderTray, resizeTray, stageFor, TRAY_STORAGE_KEY,
+  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, moveCell, normalizeTray, renderTray, resizeTray, stageFor, TRAY_STORAGE_KEY,
 } from '../germination.js';
 import { resolveDestination } from '../navigation.js';
 
@@ -115,6 +115,24 @@ test('bulk planting fills multiple unique cells and keeps other cells unchanged'
   assert.equal(updated.cellSeeds[2], null);
   assert.throws(() => assignSeedsToCells(tray, [72], { seed: 'Menta', icon: 'basil', plantedAt: '2026-09-20' }), RangeError);
   assert.throws(() => assignSeedsToCells(tray, [1], { seed: 'Menta', icon: 'unknown', plantedAt: '2026-09-20' }), TypeError);
+});
+
+test('moves one planted cell into an empty slot and preserves its plant data', () => {
+  const tray = normalizeTray({ ...sample, seeded: 0,
+    cellSeeds: ['Menta', null, 'Tomate', ...Array(69).fill(null)],
+    cellIcons: ['basil', null, 'tomato'], cellPlantedAt: ['2026-09-19', null, '2026-09-18'] });
+  const moved = moveCell(tray, 0, 10);
+  assert.equal(moved.cellSeeds[0], null);
+  assert.equal(moved.cellIcons[0], null);
+  assert.equal(moved.cellPlantedAt[0], null);
+  assert.equal(moved.cellSeeds[10], 'Menta');
+  assert.equal(moved.cellIcons[10], 'basil');
+  assert.equal(moved.cellPlantedAt[10], '2026-09-19');
+  assert.equal(moved.cellSeeds[2], 'Tomate');
+  assert.equal(moved.seeded, 2);
+  assert.throws(() => moveCell(tray, 0, 2), /destino vacía/);
+  assert.throws(() => moveCell(tray, 1, 10), /origen está vacía/);
+  assert.throws(() => moveCell(tray, 0, 72), RangeError);
 });
 
 test('growth age uses calendar days and clamps future dates', () => {
