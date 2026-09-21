@@ -1,39 +1,31 @@
-const plants = [
-  {id:'04', type:'strawberry', stage:'FLOWERING', health:92, ph:'5.9', ec:'1.8', temp:'21.4°C', age:'34 days'},
-  {id:'07', type:'strawberry', stage:'FRUITING', health:88, ph:'5.9', ec:'1.8', temp:'21.4°C', age:'41 days'},
-  {id:'02', type:'strawberry', stage:'VEGETATIVE', health:96, ph:'6.0', ec:'1.7', temp:'21.1°C', age:'28 days'}
-];
-const nft = document.querySelector('#nftSlots'), dwc = document.querySelector('#dwcSlots');
-function fillSlots(el, count, emptyIndexes=[]){for(let i=0;i<count;i++){const slot=document.createElement('button');slot.className='plant-slot '+(emptyIndexes.includes(i)?'empty':'');slot.textContent=emptyIndexes.includes(i)?'·':'✿';slot.dataset.plant=i%3===0?'04':i%3===1?'07':'02';slot.title=emptyIndexes.includes(i)?'Empty slot':`Strawberry #${slot.dataset.plant}`;if(!emptyIndexes.includes(i))slot.addEventListener('click',()=>openPlant(slot.dataset.plant));el.append(slot)}}
-fillSlots(nft,25,[5,11,16,21]); fillSlots(dwc,13,[2,8]);
-function openPlant(id){const p=plants.find(x=>x.id===id)||plants[0];showDialog(`<div class="detail-content"><div class="subtitle">PLANT STATUS WINDOW</div><h2>✿ STRAWBERRY #${p.id}</h2><div class="subtitle">${p.stage} · ${p.age}</div><div class="detail-grid"><div class="detail-stat"><small>HEALTH</small><strong style="color:var(--green)">${p.health}% ✓</strong></div><div class="detail-stat"><small>EXPECTED HARVEST</small><strong>~ 17 days</strong></div><div class="detail-stat"><small>PH</small><strong>${p.ph} ✓</strong></div><div class="detail-stat"><small>EC</small><strong>${p.ec} ✓</strong></div><div class="detail-stat"><small>ROOT TEMP</small><strong>${p.temp} ✓</strong></div><div class="detail-stat"><small>LOCATION</small><strong>NFT A · SLOT 04</strong></div></div><div class="detail-actions"><button class="pixel-action" data-toast="Growth note opened">＋ ADD NOTE</button><button class="pixel-action" data-toast="Harvest form opened">RECORD HARVEST</button><button class="pixel-action" data-toast="Problem report opened">REPORT PROBLEM</button></div></div>`)}
-function showDialog(html){document.querySelector('#dialogContent').innerHTML=html;document.querySelector('#detailDialog').showModal();document.querySelectorAll('[data-toast]').forEach(b=>b.onclick=()=>{showToast(b.dataset.toast);document.querySelector('#detailDialog').close()})}
-document.querySelectorAll('[data-entity]').forEach(b=>b.addEventListener('click',()=>{const type=b.dataset.entity;if(type==='reservoir')showDialog(`<div class="detail-content"><div class="subtitle">HYDRO SYSTEM OBJECT</div><h2>▣ RESERVOIR A</h2><div class="subtitle">ACTIVE · 420 / 510 L</div><div class="detail-grid"><div class="detail-stat"><small>WATER LEVEL</small><strong style="color:var(--aqua)">82% ✓</strong></div><div class="detail-stat"><small>PH RANGE</small><strong>5.5—6.2</strong></div><div class="detail-stat"><small>EC RANGE</small><strong>1.5—2.2</strong></div><div class="detail-stat"><small>LAST WATER CHANGE</small><strong>2 days ago</strong></div></div><div class="detail-actions"><button class="pixel-action" data-toast="Water change form opened">RECORD WATER CHANGE</button><button class="pixel-action" data-toast="Nutrient dose form opened">ADD NUTRIENTS</button></div></div>`); else showToast(`${type.toUpperCase()} selected`)}));
-document.querySelector('#closeDialog').onclick=()=>document.querySelector('#detailDialog').close();
-document.querySelector('#detailDialog').addEventListener('click',e=>{if(e.target.id==='detailDialog')e.target.close()});
-function showToast(message){const t=document.querySelector('#toast');t.textContent='✦ '+message;t.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.classList.remove('show'),2400)}
-document.querySelectorAll('.quest input').forEach(input=>input.addEventListener('change',()=>{input.closest('.quest').classList.toggle('done',input.checked);showToast(input.checked?'Quest complete · +10 FARM XP':'Quest reopened')}));
-document.querySelectorAll('.mini-button').forEach(n=>n.addEventListener('click',()=>{document.querySelectorAll('.mini-button').forEach(x=>x.classList.remove('active'));n.classList.add('active');showToast(`${n.textContent} view selected`)}));
-// Germination trays are an independent, locally persisted simulation.
-const trayStore='pony.germination.trays.v1';
-let trays=[];
-try{trays=JSON.parse(localStorage.getItem(trayStore)||'[]')}catch{trays=[]}
-const escapeHTML=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function saveTrays(){localStorage.setItem(trayStore,JSON.stringify(trays));renderTrays()}
-function dayAge(date){return Math.max(0,Math.floor((Date.now()-new Date(`${date}T12:00:00`).getTime())/86400000))}
-function stageFor(days){return days<3?'RECIÉN SEMBRADA':days<8?'GERMINANDO':days<18?'PLÁNTULA':'LISTA PARA TRASPLANTE'}
-function renderTrays(){
- const summary=document.querySelector('#germinationSummary'),list=document.querySelector('#trayList');if(!summary||!list)return;
- const planted=trays.reduce((n,t)=>n+Number(t.seeded||0),0),cells=trays.reduce((n,t)=>n+Number(t.capacity||0),0);
- summary.innerHTML=`<div><small>CHAROLAS</small><strong>${trays.length}</strong></div><div><small>SEMILLAS</small><strong>${planted}</strong></div><div><small>ESPACIOS LIBRES</small><strong>${cells-planted}</strong></div>`;
- if(!trays.length){list.innerHTML='<div class="empty-trays">♧<strong>Todavía no hay charolas</strong><span>Agrega una para empezar a simular tus semillas y sustratos.</span></div>';return}
- list.innerHTML=trays.map(t=>{const days=dayAge(t.sown),filled=Math.min(t.capacity,t.seeded);return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(t.size)}</small><h3>${escapeHTML(t.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days+1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(t.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(t.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(t.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${Math.min(12,Math.ceil(Math.sqrt(t.capacity)))}">${Array.from({length:t.capacity},(_,i)=>`<i class="${i<filled?'sown':''}" title="${i<filled?'Semilla sembrada':'Espacio vacío'}">${i<filled?'✿':'·'}</i>`).join('')}</div><div class="tray-card-foot"><span>${filled} / ${t.capacity} celdas sembradas</span><button class="link-button" data-edit-tray="${t.id}">EDITAR</button><button class="link-button remove-tray" data-remove-tray="${t.id}">ELIMINAR</button></div></article>`}).join('');
- list.querySelectorAll('[data-edit-tray]').forEach(b=>b.onclick=()=>trayForm(trays.find(t=>t.id===b.dataset.editTray)));
- list.querySelectorAll('[data-remove-tray]').forEach(b=>b.onclick=()=>{trays=trays.filter(t=>t.id!==b.dataset.removeTray);saveTrays()});
+import { mountGarden } from './garden.js';
+import { mountGermination } from './germination.js';
+import { mountNavigation } from './navigation.js';
+import { createUI } from './ui.js';
+
+function startApp(document = window.document) {
+  const ui = createUI(document);
+  mountGarden(document, ui);
+  mountGermination(document, ui);
+  mountNavigation(document, ui);
+  updateClock(document);
+  window.setInterval(() => updateClock(document), 1000);
 }
-function trayForm(tray){const editing=!!tray;showDialog(`<form class="detail-content tray-form" id="trayForm"><div class="subtitle">SIMULADOR DE SIEMBRA</div><h2>${editing?'EDITAR CHAROLA':'NUEVA CHAROLA'}</h2><label>Nombre<input name="name" required maxlength="32" placeholder="Ej. Tomates" value="${escapeHTML(tray?.name||'')}"></label><div class="tray-form-row"><label>Formato<input name="size" required placeholder="Ej. 6×12" value="${escapeHTML(tray?.size||'')}"></label><label>Celdas<input name="capacity" required type="number" min="1" max="240" value="${tray?.capacity||72}"></label></div><label>Semilla / variedad<input name="seed" required placeholder="Ej. Jitomate cherry" value="${escapeHTML(tray?.seed||'')}"></label><label>Sustrato<input name="substrate" required placeholder="Ej. Fibra de coco + perlita" value="${escapeHTML(tray?.substrate||'')}"></label><div class="tray-form-row"><label>Celdas sembradas<input name="seeded" required type="number" min="0" max="240" value="${tray?.seeded||0}"></label><label>Fecha de siembra<input name="sown" required type="date" value="${tray?.sown||new Date().toISOString().slice(0,10)}"></label></div><div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CHAROLA</button></div></form>`);
- document.querySelector('#trayForm').onsubmit=e=>{e.preventDefault();const f=new FormData(e.currentTarget),capacity=Number(f.get('capacity')),seeded=Number(f.get('seeded'));if(seeded>capacity){showToast('Las semillas no pueden superar las celdas');return}const id=tray?.id||(globalThis.crypto?.randomUUID?.()||`tray-${Date.now()}-${Math.random().toString(36).slice(2,9)}`),entry={id,name:f.get('name').trim(),size:f.get('size').trim(),capacity,seed:f.get('seed').trim(),substrate:f.get('substrate').trim(),seeded,sown:f.get('sown')};if(editing)trays=trays.map(t=>t.id===tray.id?entry:t);else trays.push(entry);document.querySelector('#detailDialog').close();saveTrays()};
+
+function updateClock(document) {
+  const clock = document.querySelector('#clock');
+  if (clock) {
+    clock.textContent = new Date().toLocaleTimeString([], {
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    });
+  }
 }
-document.querySelector('#addTray').addEventListener('click',()=>trayForm());renderTrays();
-document.querySelectorAll('.nav-item').forEach(n=>n.addEventListener('click',()=>{const germination=n.dataset.nav==='GERMINACIÓN';document.querySelector('#germinationView').hidden=!germination;document.querySelector('.game-layout').hidden=germination;document.querySelector('.bottom-grid').hidden=germination;document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));n.classList.add('active');if(germination)renderTrays();else if(n.dataset.nav!=='MAP')showToast(`${n.dataset.nav} screen queued for next build`)}));
-function tick(){const d=new Date();document.querySelector('#clock').textContent=d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}tick();setInterval(tick,1000);
+
+const appDocument = globalThis.document;
+if (appDocument) {
+  if (appDocument.readyState === 'loading') {
+    appDocument.addEventListener('DOMContentLoaded', () => startApp(appDocument), { once: true });
+  } else {
+    startApp(appDocument);
+  }
+}

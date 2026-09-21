@@ -1,0 +1,8 @@
+{
+  "name": "pony-hydroponic-garden",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
