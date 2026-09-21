@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, normalizeTray, stageFor, TRAY_STORAGE_KEY,
+  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, normalizeTray, stageFor, TRAY_STORAGE_KEY,
 } from '../germination.js';
 import { resolveDestination } from '../navigation.js';
 
@@ -76,6 +76,19 @@ test('stores individual seed assignments and derives seeded count from cells', (
   cleared[4] = null;
   const [afterClear] = repository.save({ ...updated, cellSeeds: cleared }, 'cells');
   assert.equal(afterClear.seeded, 1);
+});
+
+test('bulk planting fills multiple unique cells and keeps other cells unchanged', () => {
+  const tray = normalizeTray({ ...sample, id: 'bulk', seeded: 0, cellSeeds: Array(72).fill(null) });
+  const updated = assignSeedsToCells(tray, [1, 4, 7, 4], {
+    seed: 'Menta', icon: 'basil', plantedAt: '2026-09-20',
+  });
+  assert.equal(updated.seeded, 3);
+  assert.deepEqual([updated.cellSeeds[1], updated.cellSeeds[4], updated.cellSeeds[7]], ['Menta', 'Menta', 'Menta']);
+  assert.deepEqual([updated.cellIcons[1], updated.cellIcons[4], updated.cellIcons[7]], ['basil', 'basil', 'basil']);
+  assert.equal(updated.cellSeeds[2], null);
+  assert.throws(() => assignSeedsToCells(tray, [72], { seed: 'Menta', icon: 'basil', plantedAt: '2026-09-20' }), RangeError);
+  assert.throws(() => assignSeedsToCells(tray, [1], { seed: 'Menta', icon: 'unknown', plantedAt: '2026-09-20' }), TypeError);
 });
 
 test('growth age uses calendar days and clamps future dates', () => {

@@ -122,6 +122,27 @@ export function inferPlantIcon(seedName) {
   return 'seedling';
 }
 
+export function assignSeedsToCells(value, indices, { seed, icon, plantedAt }) {
+  const tray = normalizeTray(value);
+  const seedName = String(seed || '').trim().slice(0, 100);
+  const uniqueIndices = [...new Set(indices)];
+  if (!tray || !seedName || !PLANT_ICONS.some(item => item.key === icon) || !validDate(plantedAt)) {
+    throw new TypeError('Revisa la semilla, icono y fecha de siembra.');
+  }
+  if (!uniqueIndices.length || uniqueIndices.some(index => !Number.isInteger(index) || index < 0 || index >= tray.capacity)) {
+    throw new RangeError('Selecciona celdas válidas de la charola.');
+  }
+  const cellSeeds = [...tray.cellSeeds];
+  const cellIcons = [...tray.cellIcons];
+  const cellPlantedAt = [...tray.cellPlantedAt];
+  for (const index of uniqueIndices) {
+    cellSeeds[index] = seedName;
+    cellIcons[index] = icon;
+    cellPlantedAt[index] = plantedAt;
+  }
+  return normalizeTray({ ...tray, cellSeeds, cellIcons, cellPlantedAt });
+}
+
 export function mountGermination(document, ui, storage = safeStorage()) {
   const addButton = document.querySelector('#addTray');
   const list = document.querySelector('#trayList');
@@ -130,6 +151,8 @@ export function mountGermination(document, ui, storage = safeStorage()) {
 
   const repository = createTrayRepository(storage);
   let trays = repository.read();
+  let multiSelectTrayId = '';
+  let selectedCells = new Set();
 
   function apply(nextTrays) {
     try {
@@ -161,7 +184,10 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       list.innerHTML = '<div class="empty-trays">♧<strong>Todavía no hay charolas</strong><span>Agrega una para empezar a simular tus semillas y sustratos.</span></div>';
       return;
     }
-    list.innerHTML = trays.map(tray => renderTray(tray)).join('');
+    list.innerHTML = trays.map(tray => renderTray(tray, {
+      multiSelecting: multiSelectTrayId === tray.id,
+      selectedCells: multiSelectTrayId === tray.id ? selectedCells : new Set(),
+    })).join('');
   }
 
   function openForm(tray) {
@@ -218,6 +244,36 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     document.querySelector('#clearCell')?.addEventListener('click', () => saveCell(''));
   }
 
+  function openBulkCellForm(tray) {
+    const indices = [...selectedCells].sort((left, right) => left - right);
+    if (indices.length === 0) return;
+    const icon = inferPlantIcon(tray.seed);
+    const iconOptions = PLANT_ICONS.map(item => `<label class="plant-icon-option"><input type="radio" name="icon" value="${item.key}" ${icon === item.key ? 'checked' : ''}><span>${item.symbol}</span><small>${item.label}</small></label>`).join('');
+    ui.showDialog(`<form class="detail-content tray-form" id="bulkCellForm"><div class="subtitle">${escapeHTML(tray.name)} · ${indices.length} CELDAS</div><h2>SEMBRAR SELECCIÓN</h2><label>Semilla / variedad<input name="seed" required maxlength="100" value="${escapeHTML(tray.seed)}"></label><fieldset class="icon-picker"><legend>Icono de la planta</legend><div class="plant-icon-options">${iconOptions}</div></fieldset><label>Fecha de siembra<input name="plantedAt" type="date" required value="${tray.sown || todayISO()}"></label><p class="cell-form-hint">Se aplicará a las ${indices.length} celdas seleccionadas.</p><div class="detail-actions"><button class="pixel-action" type="submit">SEMBRAR ${indices.length} CELDAS</button></div></form>`);
+    const form = document.querySelector('#bulkCellForm');
+    form?.addEventListener('submit', event => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const values = new FormData(form);
+      let next;
+      try {
+        const updated = assignSeedsToCells(tray, indices, {
+          seed: values.get('seed'), icon: values.get('icon'), plantedAt: values.get('plantedAt'),
+        });
+        next = repository.save(updated, tray.id);
+      } catch (error) {
+        ui.toast(error?.message || 'No se pudieron llenar las celdas.');
+        return;
+      }
+      multiSelectTrayId = '';
+      selectedCells = new Set();
+      if (apply(next)) {
+        ui.closeDialog();
+        ui.toast(`${indices.length} celdas sembradas.`);
+      }
+    });
+  }
+
   addButton.addEventListener('click', () => openForm());
   document.defaultView?.addEventListener('storage', event => {
     if (event.key !== TRAY_STORAGE_KEY) return;
@@ -225,12 +281,43 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     render();
   });
   list.addEventListener('click', event => {
+    const selectionMode = event.target.closest('[data-cell-selection]');
+    const bulkPlant = event.target.closest('[data-plant-selected]');
+    const clearSelection = event.target.closest('[data-clear-selection]');
     const cell = event.target.closest('[data-cell-index]');
     const edit = event.target.closest('[data-edit-tray]');
     const remove = event.target.closest('[data-remove-tray]');
+    if (selectionMode) {
+      if (multiSelectTrayId === selectionMode.dataset.cellSelection) {
+        multiSelectTrayId = '';
+        selectedCells = new Set();
+      } else {
+        multiSelectTrayId = selectionMode.dataset.cellSelection;
+        selectedCells = new Set();
+      }
+      render();
+      return;
+    }
+    if (bulkPlant) {
+      const tray = trays.find(item => item.id === bulkPlant.dataset.plantSelected);
+      if (tray) openBulkCellForm(tray);
+      return;
+    }
+    if (clearSelection) {
+      selectedCells.clear();
+      render();
+      return;
+    }
     if (cell) {
       const tray = trays.find(item => item.id === cell.dataset.trayId);
-      if (tray) openCellForm(tray, Number(cell.dataset.cellIndex));
+      if (tray && multiSelectTrayId === tray.id) {
+        const index = Number(cell.dataset.cellIndex);
+        if (selectedCells.has(index)) selectedCells.delete(index);
+        else selectedCells.add(index);
+        render();
+      } else if (tray) {
+        openCellForm(tray, Number(cell.dataset.cellIndex));
+      }
       return;
     }
     if (edit) openForm(trays.find(tray => tray.id === edit.dataset.editTray));
@@ -246,11 +333,12 @@ export function mountGermination(document, ui, storage = safeStorage()) {
   render();
 }
 
-function renderTray(tray) {
+function renderTray(tray, { multiSelecting = false, selectedCells = new Set() } = {}) {
   const filled = tray.cellSeeds.filter(Boolean).length;
   const days = daysSince(tray.sown);
   const cells = tray.cellSeeds.map((seed, index) => {
-    if (!seed) return `<button class="tray-cell" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" title="Celda ${index + 1}: vacía" aria-label="Celda ${index + 1}: vacía">·</button>`;
+    const selected = selectedCells.has(index);
+    if (!seed) return `<button class="tray-cell${selected ? ' selected-cell' : ''}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected}" title="Celda ${index + 1}: vacía${multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}" aria-label="Celda ${index + 1}: vacía${multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}">·</button>`;
     const plantedAt = tray.cellPlantedAt[index] || tray.sown;
     const age = daysSince(plantedAt);
     const stage = cellGrowthStage(age);
@@ -262,9 +350,12 @@ function renderTray(tray) {
         : `<span class="growth-sprite growth-plant">${icon.symbol}</span>`;
     const seedIndicator = stage.key === 'plant' ? '' : `<span class="crop-badge" aria-hidden="true">${icon.symbol}</span>`;
     const label = `Celda ${index + 1}: ${seed}, ${stage.label.toLowerCase()}, día ${age + 1}`;
-    return `<button class="tray-cell sown" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" title="${escapeHTML(label)}" aria-label="${escapeHTML(label)}"><span class="cell-icon-box">${visual}${seedIndicator}</span><small>${escapeHTML(seed)}</small></button>`;
+    const cellLabel = `${label}${multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}`;
+    return `<button class="tray-cell sown${selected ? ' selected-cell' : ''}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected}" title="${escapeHTML(cellLabel)}" aria-label="${escapeHTML(cellLabel)}"><span class="cell-icon-box">${visual}${seedIndicator}</span><small>${escapeHTML(seed)}</small></button>`;
   }).join('');
-  return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${Math.min(12, Math.ceil(Math.sqrt(tray.capacity)))}">${cells}</div><div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
+  const selectedCount = selectedCells.size;
+  const selectionToolbar = multiSelecting ? `<div class="cell-selection-toolbar"><span aria-live="polite">${selectedCount} CELDAS SELECCIONADAS</span><button class="pixel-action" type="button" data-plant-selected="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>SEMBRAR SELECCIONADAS</button><button class="link-button" type="button" data-clear-selection="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>LIMPIAR</button></div>` : '';
+  return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${Math.min(12, Math.ceil(Math.sqrt(tray.capacity)))}">${cells}</div>${selectionToolbar}<div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-cell-selection="${escapeHTML(tray.id)}" aria-pressed="${multiSelecting}">${multiSelecting ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR CELDAS'}</button><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
 }
 
 function escapeHTML(value) {
