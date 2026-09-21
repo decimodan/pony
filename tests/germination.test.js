@@ -20,7 +20,13 @@ function memoryStorage(initial = {}) {
 }
 
 test('normalizes valid tray values and rejects corrupt/unsafe fields', () => {
-  assert.deepEqual(normalizeTray(sample), sample);
+  const normalized = normalizeTray(sample);
+  assert.equal(normalized.seeded, 40);
+  assert.equal(normalized.cellSeeds.length, 72);
+  assert.equal(normalized.cellSeeds[0], 'Cherry');
+  assert.equal(normalized.cellSeeds[40], null);
+  assert.equal(normalizeTray({ ...sample, cellSeeds: ['Cherry', null, 'Romaine'] }).seeded, 2);
+  assert.equal(normalizeTray({ ...sample, cellSeeds: ['Cherry', null, 'Romaine'], capacity: 2 }).cellSeeds.length, 2);
   assert.equal(normalizeTray({ ...sample, capacity: 241 }), null);
   assert.equal(normalizeTray({ ...sample, seeded: -1 }), null);
   assert.equal(normalizeTray({ ...sample, seeded: 73 }), null);
@@ -34,7 +40,8 @@ test('repository reads malformed JSON safely and filters malformed entries', () 
   assert.deepEqual(repository.read(), []);
 
   storage.setItem(TRAY_STORAGE_KEY, JSON.stringify([sample, { ...sample, id: '' }, { ...sample, name: 'Duplicada' }]));
-  assert.deepEqual(repository.read(), [{ ...sample, name: 'Duplicada' }]);
+  assert.equal(repository.read().length, 1);
+  assert.equal(repository.read()[0].name, 'Duplicada');
 });
 
 test('repository creates, updates, and removes trays without duplicate records', () => {
@@ -43,6 +50,23 @@ test('repository creates, updates, and removes trays without duplicate records',
   assert.equal(repository.save({ ...sample, name: 'Editado' }, 'new-id').length, 1);
   assert.equal(repository.read()[0].name, 'Editado');
   assert.deepEqual(repository.remove('new-id'), []);
+});
+
+test('stores individual seed assignments and derives seeded count from cells', () => {
+  const repository = createTrayRepository(memoryStorage());
+  const blank = Array(72).fill(null);
+  const [created] = repository.save({ ...sample, id: 'cells', seeded: 0, cellSeeds: blank });
+  const cellSeeds = [...created.cellSeeds];
+  cellSeeds[4] = 'Albahaca genovesa';
+  cellSeeds[11] = 'Lechuga romana';
+  const [updated] = repository.save({ ...created, cellSeeds }, 'cells');
+  assert.equal(updated.seeded, 2);
+  assert.equal(updated.cellSeeds[4], 'Albahaca genovesa');
+  assert.equal(updated.cellSeeds[11], 'Lechuga romana');
+  const cleared = [...updated.cellSeeds];
+  cleared[4] = null;
+  const [afterClear] = repository.save({ ...updated, cellSeeds: cleared }, 'cells');
+  assert.equal(afterClear.seeded, 1);
 });
 
 test('growth age uses calendar days and clamps future dates', () => {

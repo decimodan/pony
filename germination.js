@@ -9,18 +9,25 @@ const validDate = value => {
 export function normalizeTray(value) {
   if (!value || typeof value !== 'object') return null;
   const capacity = Number(value.capacity);
-  const seeded = Number(value.seeded);
+  const legacySeeded = Number(value.seeded ?? 0);
   const text = key => typeof value[key] === 'string' ? value[key].trim().slice(0, key === 'name' ? 32 : 100) : '';
   const id = typeof value.id === 'string' ? value.id.slice(0, 100) : '';
   const tray = {
     id, name: text('name'), size: text('size'), capacity,
-    seed: text('seed'), substrate: text('substrate'), seeded,
+    seed: text('seed'), substrate: text('substrate'),
     sown: typeof value.sown === 'string' ? value.sown : '',
   };
   if (!tray.id || !tray.name || !tray.size || !tray.seed || !tray.substrate) return null;
   if (!Number.isInteger(capacity) || capacity < 1 || capacity > MAX_TRAY_CELLS) return null;
-  if (!Number.isInteger(seeded) || seeded < 0 || seeded > capacity) return null;
+  if (!Array.isArray(value.cellSeeds) && (!Number.isInteger(legacySeeded) || legacySeeded < 0 || legacySeeded > capacity)) return null;
   if (!validDate(tray.sown)) return null;
+  tray.cellSeeds = Array.isArray(value.cellSeeds)
+    ? Array.from({ length: capacity }, (_, index) => {
+      const seed = value.cellSeeds[index];
+      return typeof seed === 'string' && seed.trim() ? seed.trim().slice(0, 100) : null;
+    })
+    : Array.from({ length: capacity }, (_, index) => index < legacySeeded && tray.seed ? tray.seed : null);
+  tray.seeded = tray.cellSeeds.filter(Boolean).length;
   return tray;
 }
 
@@ -104,7 +111,7 @@ export function mountGermination(document, ui, storage = safeStorage()) {
   }
 
   function render() {
-    const planted = trays.reduce((total, tray) => total + tray.seeded, 0);
+    const planted = trays.reduce((total, tray) => total + tray.cellSeeds.filter(Boolean).length, 0);
     const cells = trays.reduce((total, tray) => total + tray.capacity, 0);
     summary.replaceChildren(...[
       ['CHAROLAS', trays.length], ['SEMILLAS', planted], ['ESPACIOS LIBRES', cells - planted],
@@ -127,17 +134,16 @@ export function mountGermination(document, ui, storage = safeStorage()) {
 
   function openForm(tray) {
     const editing = Boolean(tray);
-    ui.showDialog(`<form class="detail-content tray-form" id="trayForm"><div class="subtitle">SIMULADOR DE SIEMBRA</div><h2>${editing ? 'EDITAR CHAROLA' : 'NUEVA CHAROLA'}</h2><label>Nombre<input name="name" required maxlength="32" placeholder="Ej. Tomates" value="${escapeHTML(tray?.name || '')}"></label><div class="tray-form-row"><label>Formato<input name="size" required maxlength="100" placeholder="Ej. 6×12" value="${escapeHTML(tray?.size || '')}"></label><label>Celdas<input name="capacity" required type="number" min="1" max="${MAX_TRAY_CELLS}" value="${tray?.capacity ?? 72}"></label></div><label>Semilla / variedad<input name="seed" required maxlength="100" placeholder="Ej. Jitomate cherry" value="${escapeHTML(tray?.seed || '')}"></label><label>Sustrato<input name="substrate" required maxlength="100" placeholder="Ej. Fibra de coco + perlita" value="${escapeHTML(tray?.substrate || '')}"></label><div class="tray-form-row"><label>Celdas sembradas<input name="seeded" required type="number" min="0" max="${MAX_TRAY_CELLS}" value="${tray?.seeded ?? 0}"></label><label>Fecha de siembra<input name="sown" required type="date" value="${tray?.sown || todayISO()}"></label></div><div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CHAROLA</button></div></form>`);
+    ui.showDialog(`<form class="detail-content tray-form" id="trayForm"><div class="subtitle">SIMULADOR DE SIEMBRA</div><h2>${editing ? 'EDITAR CHAROLA' : 'NUEVA CHAROLA'}</h2><label>Nombre<input name="name" required maxlength="32" placeholder="Ej. Tomates" value="${escapeHTML(tray?.name || '')}"></label><div class="tray-form-row"><label>Formato<input name="size" required maxlength="100" placeholder="Ej. 6×12" value="${escapeHTML(tray?.size || '')}"></label><label>Celdas<input name="capacity" required type="number" min="1" max="${MAX_TRAY_CELLS}" value="${tray?.capacity ?? 72}"></label></div><label>Semilla sugerida<input name="seed" required maxlength="100" placeholder="Ej. Jitomate cherry" value="${escapeHTML(tray?.seed || '')}"></label><label>Sustrato<input name="substrate" required maxlength="100" placeholder="Ej. Fibra de coco + perlita" value="${escapeHTML(tray?.substrate || '')}"></label><label>Fecha de siembra<input name="sown" required type="date" value="${tray?.sown || todayISO()}"></label><div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CHAROLA</button></div></form>`);
     const form = document.querySelector('#trayForm');
     form?.addEventListener('submit', event => {
       event.preventDefault();
       if (!form.reportValidity()) return;
       const values = Object.fromEntries(new FormData(form));
       values.capacity = Number(values.capacity);
-      values.seeded = Number(values.seeded);
-      const trayData = normalizeTray({ ...values, id: tray?.id || defaultId() });
+      const trayData = normalizeTray({ ...values, id: tray?.id || defaultId(), cellSeeds: tray?.cellSeeds || [] });
       if (!trayData) {
-        ui.toast('Las celdas sembradas no pueden superar la capacidad.');
+        ui.toast('Revisa la capacidad y los datos de la charola.');
         return;
       }
       let next;
@@ -151,6 +157,27 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     });
   }
 
+  function openCellForm(tray, index) {
+    const currentSeed = tray.cellSeeds[index] || '';
+    ui.showDialog(`<form class="detail-content tray-form" id="cellForm"><div class="subtitle">CHAROLA · ${escapeHTML(tray.name)}</div><h2>CELDA ${index + 1}</h2><label>Semilla / variedad<input name="seed" maxlength="100" placeholder="Ej. Lechuga romana" value="${escapeHTML(currentSeed || tray.seed)}"></label><small class="cell-form-hint">Deja vacía la celda para marcarla como libre.</small><div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CELDA</button><button class="link-button" type="button" id="clearCell">VACIAR CELDA</button></div></form>`);
+    const form = document.querySelector('#cellForm');
+    const saveCell = seed => {
+      const cellSeeds = [...tray.cellSeeds];
+      cellSeeds[index] = seed || null;
+      try {
+        const next = repository.save({ ...tray, cellSeeds }, tray.id);
+        if (apply(next)) ui.closeDialog();
+      } catch {
+        ui.toast('No se pudo guardar esta celda.');
+      }
+    };
+    form?.addEventListener('submit', event => {
+      event.preventDefault();
+      saveCell(new FormData(form).get('seed').trim());
+    });
+    document.querySelector('#clearCell')?.addEventListener('click', () => saveCell(''));
+  }
+
   addButton.addEventListener('click', () => openForm());
   document.defaultView?.addEventListener('storage', event => {
     if (event.key !== TRAY_STORAGE_KEY) return;
@@ -158,8 +185,14 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     render();
   });
   list.addEventListener('click', event => {
+    const cell = event.target.closest('[data-cell-index]');
     const edit = event.target.closest('[data-edit-tray]');
     const remove = event.target.closest('[data-remove-tray]');
+    if (cell) {
+      const tray = trays.find(item => item.id === cell.dataset.trayId);
+      if (tray) openCellForm(tray, Number(cell.dataset.cellIndex));
+      return;
+    }
     if (edit) openForm(trays.find(tray => tray.id === edit.dataset.editTray));
     if (remove) {
       try {
@@ -174,9 +207,9 @@ export function mountGermination(document, ui, storage = safeStorage()) {
 }
 
 function renderTray(tray) {
-  const filled = Math.min(tray.capacity, tray.seeded);
+  const filled = tray.cellSeeds.filter(Boolean).length;
   const days = daysSince(tray.sown);
-  const cells = Array.from({ length: tray.capacity }, (_, index) => `<i class="${index < filled ? 'sown' : ''}" title="${index < filled ? 'Semilla sembrada' : 'Espacio vacío'}">${index < filled ? '✿' : '·'}</i>`).join('');
+  const cells = tray.cellSeeds.map((seed, index) => `<button class="tray-cell${seed ? ' sown' : ''}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" title="Celda ${index + 1}: ${seed ? escapeHTML(seed) : 'vacía'}" aria-label="Celda ${index + 1}: ${seed ? escapeHTML(seed) : 'vacía'}">${seed ? `<span>✿</span><small>${escapeHTML(seed)}</small>` : '·'}</button>`).join('');
   return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${Math.min(12, Math.ceil(Math.sqrt(tray.capacity)))}">${cells}</div><div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
 }
 
