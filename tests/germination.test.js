@@ -4,6 +4,7 @@ import {
   assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, moveCell, normalizeTray, renderTray, resizeTray, stageFor, trayPlantingAgeLabel, TRAY_STORAGE_KEY, waterCells, wateringAgeLabel,
 } from '../germination.js';
 import { resolveDestination } from '../navigation.js';
+import { ACTIVITY_STORAGE_KEY, createActivityRepository } from '../actors.js';
 
 const sample = {
   id: 'tray-a', name: 'Tomate', size: '6×12', capacity: 72,
@@ -165,6 +166,21 @@ test('records watering history for planted cells only', () => {
   assert.throws(() => waterCells(tray, [1], { at: '2026-09-21T09:30' }), /celdas sembradas/);
   assert.throws(() => waterCells(tray, [0], { at: '2026-02-31T09:30' }), /fecha y cantidad/);
   assert.throws(() => waterCells(tray, [0], { at: '2026-09-21T09:30', amountMl: '0' }), /fecha y cantidad/);
+});
+
+test('stores who watered each cell and maintains a recent activity history', () => {
+  const storage = memoryStorage();
+  const actor = { id: 'daniel', name: 'Daniel' };
+  const tray = normalizeTray({ ...sample, size: '1×2', capacity: 2, seeded: 1 });
+  const updated = waterCells(tray, [0], { at: '2026-09-21T09:30', amountMl: 25, note: '', actor });
+  assert.deepEqual(updated.cellWaterings[0][0].actor, actor);
+
+  const activities = createActivityRepository(storage);
+  activities.record(actor, 'Regó celda', 'Tomates · celda 1', '2026-09-21T09:30:00.000Z');
+  activities.record({ id: 'isis', name: 'Isis' }, 'Sembró', 'Albahaca', '2026-09-21T10:00:00.000Z');
+  assert.equal(activities.read()[0].actor.name, 'Isis');
+  assert.equal(activities.read()[1].actor.id, 'daniel');
+  assert.equal(JSON.parse(storage.inspect(ACTIVITY_STORAGE_KEY)).length, 2);
 });
 
 test('summarizes planted age and latest watering time in compact tray status', () => {

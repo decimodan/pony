@@ -2,11 +2,13 @@ import { mountGarden } from './garden.js';
 import { mountGermination } from './germination.js';
 import { mountNavigation } from './navigation.js';
 import { createUI } from './ui.js';
+import { mountActors } from './actors.js';
 
 function startApp(document = window.document) {
   const ui = createUI(document);
+  const actors = mountActors(document);
   mountGarden(document, ui);
-  mountGermination(document, ui);
+  mountGermination(document, ui, undefined, actors);
   mountNavigation(document, ui);
   updateClock(document);
   window.setInterval(() => updateClock(document), 1000);

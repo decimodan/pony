@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=compact-germination-20260922" />
+  <link rel="stylesheet" href="styles.css?v=keeper-avatars-20260922" />
 </head>
 <body>
   <div class="crt-overlay"></div>
@@ -16,7 +16,7 @@
     <header class="topbar">
       <div class="brand"><span class="brand-mark">✿</span><div><h1>PONY</h1><p>HYDROPONIC FARM OS</p></div></div>
       <div class="farm-clock"><span class="day-chip">DAY 142</span><span class="season">SPRING  •  TUESDAY</span><strong id="clock">14:32:08</strong></div>
-      <div class="top-actions"><button class="icon-button" title="Notifications" aria-label="Notifications">♧<b>2</b></button><button class="avatar" title="Farm keeper">JD</button></div>
+      <div class="top-actions"><button class="icon-button" title="Notifications" aria-label="Notifications">♧<b>2</b></button><button class="avatar" id="avatarButton" type="button" aria-label="Elegir persona"></button></div>
     </header>
 
     <section class="game-layout">
@@ -49,6 +49,7 @@
       <div class="germination-heading"><div><div class="subtitle">SEED STARTING ROOM</div><h2>GERMINACIÓN</h2><p>Simula charolas, semillas y sustratos desde la siembra hasta el trasplante.</p></div><button class="pixel-action" id="addTray">＋ NUEVA CHAROLA</button></div>
       <div class="germination-summary" id="germinationSummary"></div>
       <div class="tray-list" id="trayList"></div>
+      <section class="activity-log" aria-live="polite"><h3>ACTIVIDAD RECIENTE</h3><div id="activityList"></div></section>
       <p class="germination-note">Los datos se guardan en este dispositivo. Puedes ajustar la configuración de cada charola.</p>
     </section>
 
@@ -57,6 +58,7 @@
 
   <dialog class="detail-dialog" id="detailDialog"><button class="close-dialog" id="closeDialog" aria-label="Close">×</button><div id="dialogContent"></div></dialog>
   <div class="toast" id="toast"></div>
-  <script type="module" src="app.js?v=compact-germination-20260922"></script>
+  <dialog class="actor-dialog" id="actorDialog"><button class="close-dialog" id="closeActorDialog" aria-label="Cerrar">×</button><div class="actor-dialog-content"><div class="subtitle">EQUIPO DE CULTIVO</div><h2>¿QUIÉN ERES?</h2><p>Las próximas acciones quedarán registradas a su nombre.</p><div id="actorChoices"></div></div></dialog>
+  <script type="module" src="app.js?v=keeper-avatars-20260922"></script>
 </body>
 </html>

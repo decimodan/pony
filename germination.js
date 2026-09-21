@@ -1,4 +1,5 @@
 export const TRAY_STORAGE_KEY = 'pony.germination.trays.v1';
+import { createActivityRepository } from './actors.js';
 export const MAX_TRAY_CELLS = 240;
 export const PLANT_ICONS = [
   { key: 'seedling', label: 'Planta', symbol: '🌱' },
@@ -25,11 +26,13 @@ function normalizeWatering(value) {
   if (!value || typeof value !== 'object' || !validDateTime(value.at)) return null;
   const amountMl = value.amountMl === '' || value.amountMl == null ? null : Number(value.amountMl);
   if (amountMl !== null && (!Number.isFinite(amountMl) || amountMl <= 0 || amountMl > 10000)) return null;
-  return {
+  const normalized = {
     at: value.at,
     amountMl,
     note: typeof value.note === 'string' ? value.note.trim().slice(0, 160) : '',
   };
+  if (typeof value.actor?.name === 'string') normalized.actor = { id: String(value.actor.id || '').slice(0, 32), name: value.actor.name.slice(0, 40) };
+  return normalized;
 }
 
 export function normalizeTray(value) {
@@ -259,18 +262,42 @@ export function resizeTray(value, rows, columns) {
   return normalizeTray({ ...tray, rows, columns, size: `${rows}×${columns}`, capacity: rows * columns });
 }
 
-export function mountGermination(document, ui, storage = safeStorage()) {
+export function mountGermination(document, ui, storage = safeStorage(), actors = { current: () => null, choose: () => {} }) {
   const addButton = document.querySelector('#addTray');
   const list = document.querySelector('#trayList');
   const summary = document.querySelector('#germinationSummary');
   if (!addButton || !list || !summary) return;
 
   const repository = createTrayRepository(storage);
+  const activity = createActivityRepository(storage);
   let trays = repository.read();
   let multiSelectTrayId = '';
   let selectedCells = new Set();
   let moveTrayId = '';
   let moveSourceIndex = null;
+
+  function requireActor() {
+    if (actors.current()) return true;
+    actors.choose();
+    ui.toast('Elige quién realiza la acción para guardarla a su nombre.');
+    return false;
+  }
+
+  function logAction(action, detail) {
+    try { activity.record(actors.current(), action, detail); renderActivity(); } catch { ui.toast('La acción se guardó, pero no se pudo guardar el registro de actividad.'); }
+  }
+
+  function renderActivity() {
+    const target = document.querySelector('#activityList');
+    if (!target) return;
+    const entries = activity.read();
+    target.innerHTML = entries.length ? `<ul>${entries.slice(0, 12).map(item => {
+      const actor = item.actor.id === 'daniel' ? 'daniel' : 'isis';
+      const date = new Date(item.at);
+      const time = Number.isNaN(date.getTime()) ? '' : date.toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+      return `<li><span class="actor-avatar actor-avatar-${actor}" aria-hidden="true"></span><span class="activity-copy"><b>${escapeHTML(item.actor.name)}</b> · ${escapeHTML(item.action)}<small>${escapeHTML(item.detail)}${time ? ` · ${escapeHTML(time)}` : ''}</small></span></li>`;
+    }).join('')}</ul>` : '<p>Aún no hay acciones registradas. Selecciona una persona y empieza a cultivar.</p>';
+  }
 
   function apply(nextTrays) {
     try {
@@ -284,6 +311,7 @@ export function mountGermination(document, ui, storage = safeStorage()) {
   }
 
   function render() {
+    renderActivity();
     const planted = trays.reduce((total, tray) => total + tray.cellSeeds.filter(Boolean).length, 0);
     const cells = trays.reduce((total, tray) => total + tray.capacity, 0);
     summary.replaceChildren(...[
@@ -369,7 +397,10 @@ export function mountGermination(document, ui, storage = safeStorage()) {
         ui.toast(error?.message || 'No se pudieron guardar los cambios.');
         return;
       }
-      if (apply(next)) ui.closeDialog();
+      if (apply(next)) {
+        logAction(tray ? 'Editó charola' : 'Creó charola', `${trayData.name} · ${trayData.size}`);
+        ui.closeDialog();
+      }
     });
   }
 
@@ -379,7 +410,7 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     const currentIcon = tray.cellIcons[index] || inferPlantIcon(currentSeed || tray.seed);
     const history = tray.cellWaterings[index] || [];
     const renderHistory = entries => entries.length
-      ? `<ul class="watering-history-list">${[...entries].reverse().map(entry => `<li><time>${escapeHTML(formatWateringDateTime(entry.at))}</time>${entry.amountMl === null ? '' : `<b>${entry.amountMl} ml</b>`}${entry.note ? `<span>${escapeHTML(entry.note)}</span>` : ''}</li>`).join('')}</ul>`
+      ? `<ul class="watering-history-list">${[...entries].reverse().map(entry => `<li><time>${escapeHTML(formatWateringDateTime(entry.at))}</time>${entry.actor ? `<b>${escapeHTML(entry.actor.name)}</b>` : ''}${entry.amountMl === null ? '' : `<b>${entry.amountMl} ml</b>`}${entry.note ? `<span>${escapeHTML(entry.note)}</span>` : ''}</li>`).join('')}</ul>`
       : '<p class="cell-form-hint">Todavía no hay riegos registrados.</p>';
     const iconOptions = PLANT_ICONS.map(icon => `<label class="plant-icon-option"><input type="radio" name="icon" value="${icon.key}" ${currentIcon === icon.key ? 'checked' : ''}><span>${icon.symbol}</span><small>${icon.label}</small></label>`).join('');
     const wateringSection = currentSeed ? `<fieldset class="watering-panel"><legend>RIEGOS REGISTRADOS · ${history.length}</legend><div id="cellWateringHistory">${renderHistory(history)}</div>${wateringInputsHTML()}<div class="detail-actions"><button class="pixel-action" type="button" id="recordWatering">REGISTRAR RIEGO</button></div></fieldset>` : '';
@@ -396,7 +427,10 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       if (!seed) cellWaterings[index] = [];
       try {
         const next = repository.save({ ...currentTray, cellSeeds, cellIcons, cellPlantedAt, cellWaterings }, currentTray.id);
-        if (apply(next)) ui.closeDialog();
+        if (apply(next)) {
+          logAction(seed ? (currentSeed ? 'Actualizó celda' : 'Sembró celda') : 'Vació celda', `${currentTray.name} · celda ${index + 1}${seed ? ` · ${seed}` : ''}`);
+          ui.closeDialog();
+        }
       } catch {
         ui.toast('No se pudo guardar esta celda.');
       }
@@ -419,7 +453,7 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       try {
         const updated = waterCells(currentTray, [index], {
           at: `${values.get('wateringDate')}T${values.get('wateringTime')}`,
-          amountMl: values.get('amountMl'), note: values.get('wateringNote'),
+          amountMl: values.get('amountMl'), note: values.get('wateringNote'), actor: actors.current(),
         });
         const next = repository.save(updated, currentTray.id);
         const savedTray = next.find(item => item.id === currentTray.id);
@@ -433,6 +467,7 @@ export function mountGermination(document, ui, storage = safeStorage()) {
           form.elements.namedItem('amountMl').value = '';
           form.elements.namedItem('wateringNote').value = '';
           ui.toast('Riego registrado.');
+          logAction('Regó celda', `${currentTray.name} · celda ${index + 1}`);
         }
       } catch (error) {
         ui.toast(error?.message || 'No se pudo registrar el riego.');
@@ -465,12 +500,13 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       selectedCells = new Set();
       if (apply(next)) {
         ui.closeDialog();
+        logAction('Sembró selección', `${tray.name} · ${indices.length} celdas · ${values.get('seed')}`);
         ui.toast(`${indices.length} celdas sembradas.`);
       }
     });
   }
 
-  addButton.addEventListener('click', () => openForm());
+  addButton.addEventListener('click', () => { if (requireActor()) openForm(); });
   document.defaultView?.addEventListener('storage', event => {
     if (event.key !== TRAY_STORAGE_KEY) return;
     trays = repository.read();
@@ -519,11 +555,13 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       return;
     }
     if (bulkPlant) {
+      if (!requireActor()) return;
       const tray = trays.find(item => item.id === bulkPlant.dataset.plantSelected);
       if (tray) openBulkCellForm(tray);
       return;
     }
     if (bulkWater) {
+      if (!requireActor()) return;
       const tray = trays.find(item => item.id === bulkWater.dataset.waterSelected);
       const indices = tray ? [...selectedCells].filter(index => tray.cellSeeds[index]).sort((a, b) => a - b) : [];
       if (!tray || !indices.length) {
@@ -533,11 +571,14 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       const now = localDateTimeInputValue();
       try {
         const updated = waterCells(tray, indices, {
-          at: `${now.date}T${now.time}`, amountMl: null, note: '',
+          at: `${now.date}T${now.time}`, amountMl: null, note: '', actor: actors.current(),
         });
         const next = repository.save(updated, tray.id);
         selectedCells = new Set();
-        if (apply(next)) ui.toast(`Riego registrado en ${indices.length} celdas.`);
+        if (apply(next)) {
+          logAction('Regó celdas', `${tray.name} · ${indices.length} celdas`);
+          ui.toast(`Riego registrado en ${indices.length} celdas.`);
+        }
       } catch (error) {
         ui.toast(error?.message || 'No se pudieron registrar los riegos.');
       }
@@ -563,11 +604,16 @@ export function mountGermination(document, ui, storage = safeStorage()) {
           moveSourceIndex = null;
           render();
         } else {
+          if (!requireActor()) return;
+          const sourceIndex = moveSourceIndex;
           try {
-            const updated = moveCell(tray, moveSourceIndex, index);
+            const updated = moveCell(tray, sourceIndex, index);
             const next = repository.save(updated, tray.id);
             moveSourceIndex = null;
-            if (apply(next)) ui.toast('Celda movida.');
+            if (apply(next)) {
+              logAction('Movió celda', `${tray.name} · ${sourceIndex + 1} → ${index + 1}`);
+              ui.toast('Celda movida.');
+            }
           } catch (error) {
             ui.toast(error?.message || 'No se pudo mover la celda.');
           }
@@ -578,14 +624,20 @@ export function mountGermination(document, ui, storage = safeStorage()) {
         else selectedCells.add(index);
         render();
       } else if (tray) {
+        if (!requireActor()) return;
         openCellForm(tray, Number(cell.dataset.cellIndex));
       }
       return;
     }
-    if (edit) openForm(trays.find(tray => tray.id === edit.dataset.editTray));
+    if (edit) {
+      if (!requireActor()) return;
+      openForm(trays.find(tray => tray.id === edit.dataset.editTray));
+    }
     if (remove) {
+      if (!requireActor()) return;
       try {
-        apply(repository.remove(remove.dataset.removeTray));
+        const removed = trays.find(item => item.id === remove.dataset.removeTray);
+        if (apply(repository.remove(remove.dataset.removeTray))) logAction('Eliminó charola', removed?.name || 'Charola');
       } catch {
         ui.toast('No se pudieron guardar los cambios en este dispositivo.');
       }
