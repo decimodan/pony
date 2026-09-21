@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, moveCell, normalizeTray, renderTray, resizeTray, stageFor, TRAY_STORAGE_KEY,
+  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, moveCell, normalizeTray, renderTray, resizeTray, stageFor, TRAY_STORAGE_KEY, waterCells,
 } from '../germination.js';
 import { resolveDestination } from '../navigation.js';
 
@@ -57,13 +57,15 @@ test('normalizes valid tray values and rejects corrupt/unsafe fields', () => {
 
 test('resizes trays by rows and columns while preserving planted cell metadata', () => {
   const tray = normalizeTray({ ...sample, cellSeeds: ['Menta', null, ...Array(70).fill(null)],
-    cellIcons: ['basil'], cellPlantedAt: ['2026-09-19'] });
+    cellIcons: ['basil'], cellPlantedAt: ['2026-09-19'],
+    cellWaterings: [[{ at: '2026-09-20T08:00', amountMl: 20, note: '' }]] });
   const enlarged = resizeTray(tray, 7, 12);
   assert.equal(enlarged.size, '7×12');
   assert.equal(enlarged.capacity, 84);
   assert.equal(enlarged.cellSeeds[0], 'Menta');
   assert.equal(enlarged.cellIcons[0], 'basil');
   assert.equal(enlarged.cellPlantedAt[0], '2026-09-19');
+  assert.deepEqual(enlarged.cellWaterings[0], [{ at: '2026-09-20T08:00', amountMl: 20, note: '' }]);
   assert.equal(enlarged.cellSeeds[83], null);
   assert.throws(() => resizeTray(tray, 21, 12), RangeError);
   assert.throws(() => resizeTray(tray, 0, 12), TypeError);
@@ -120,7 +122,8 @@ test('bulk planting fills multiple unique cells and keeps other cells unchanged'
 test('moves one planted cell into an empty slot and preserves its plant data', () => {
   const tray = normalizeTray({ ...sample, seeded: 0,
     cellSeeds: ['Menta', null, 'Tomate', ...Array(69).fill(null)],
-    cellIcons: ['basil', null, 'tomato'], cellPlantedAt: ['2026-09-19', null, '2026-09-18'] });
+    cellIcons: ['basil', null, 'tomato'], cellPlantedAt: ['2026-09-19', null, '2026-09-18'],
+    cellWaterings: [[{ at: '2026-09-20T08:00', amountMl: 20, note: 'Ligero' }]] });
   const moved = moveCell(tray, 0, 10);
   assert.equal(moved.cellSeeds[0], null);
   assert.equal(moved.cellIcons[0], null);
@@ -128,11 +131,35 @@ test('moves one planted cell into an empty slot and preserves its plant data', (
   assert.equal(moved.cellSeeds[10], 'Menta');
   assert.equal(moved.cellIcons[10], 'basil');
   assert.equal(moved.cellPlantedAt[10], '2026-09-19');
+  assert.deepEqual(moved.cellWaterings[10], [{ at: '2026-09-20T08:00', amountMl: 20, note: 'Ligero' }]);
+  assert.deepEqual(moved.cellWaterings[0], []);
   assert.equal(moved.cellSeeds[2], 'Tomate');
   assert.equal(moved.seeded, 2);
   assert.throws(() => moveCell(tray, 0, 2), /destino vacía/);
   assert.throws(() => moveCell(tray, 1, 10), /origen está vacía/);
   assert.throws(() => moveCell(tray, 0, 72), RangeError);
+});
+
+test('records watering history for planted cells only', () => {
+  const tray = normalizeTray({ ...sample, seeded: 0,
+    cellSeeds: ['Menta', null, 'Tomate', ...Array(69).fill(null)] });
+  const watered = waterCells(tray, [0, 2, 0], {
+    at: '2026-09-21T09:30', amountMl: '25', note: 'Humedecí el sustrato',
+  });
+  assert.equal(watered.cellWaterings[0].length, 1);
+  assert.deepEqual(watered.cellWaterings[0][0], {
+    at: '2026-09-21T09:30', amountMl: 25, note: 'Humedecí el sustrato',
+  });
+  assert.deepEqual(watered.cellWaterings[2], watered.cellWaterings[0]);
+  assert.deepEqual(watered.cellWaterings[1], []);
+  assert.match(renderTray(watered), /cell-water-indicator/);
+  assert.match(renderTray(watered), /Último riego 2026-09-21 · 09:30/);
+  const newer = waterCells(watered, [0], { at: '2026-09-21T10:00' });
+  assert.equal(newer.cellWaterings[0].length, 2);
+  assert.equal(waterCells(newer, [0], { at: '2026-09-19T10:00' }).cellWaterings[0].at(-1).at, '2026-09-21T10:00');
+  assert.throws(() => waterCells(tray, [1], { at: '2026-09-21T09:30' }), /celdas sembradas/);
+  assert.throws(() => waterCells(tray, [0], { at: '2026-02-31T09:30' }), /fecha y cantidad/);
+  assert.throws(() => waterCells(tray, [0], { at: '2026-09-21T09:30', amountMl: '0' }), /fecha y cantidad/);
 });
 
 test('growth age uses calendar days and clamps future dates', () => {

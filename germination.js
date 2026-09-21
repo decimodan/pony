@@ -14,6 +14,23 @@ const validDate = value => {
   const [year, month, day] = value.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) === value;
 };
+const validDateTime = value => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
+  const [date, time] = value.split('T');
+  const [hour, minute] = time.split(':').map(Number);
+  return validDate(date) && hour < 24 && minute < 60;
+};
+
+function normalizeWatering(value) {
+  if (!value || typeof value !== 'object' || !validDateTime(value.at)) return null;
+  const amountMl = value.amountMl === '' || value.amountMl == null ? null : Number(value.amountMl);
+  if (amountMl !== null && (!Number.isFinite(amountMl) || amountMl <= 0 || amountMl > 10000)) return null;
+  return {
+    at: value.at,
+    amountMl,
+    note: typeof value.note === 'string' ? value.note.trim().slice(0, 160) : '',
+  };
+}
 
 export function normalizeTray(value) {
   if (!value || typeof value !== 'object') return null;
@@ -57,6 +74,9 @@ export function normalizeTray(value) {
   tray.cellPlantedAt = tray.cellSeeds.map((seed, index) => seed
     ? (validDate(value.cellPlantedAt?.[index]) ? value.cellPlantedAt[index] : tray.sown)
     : null);
+  tray.cellWaterings = tray.cellSeeds.map((seed, index) => seed && Array.isArray(value.cellWaterings?.[index])
+    ? value.cellWaterings[index].map(normalizeWatering).filter(Boolean).slice(-100)
+    : []);
   tray.seeded = tray.cellSeeds.filter(Boolean).length;
   return tray;
 }
@@ -170,13 +190,32 @@ export function moveCell(value, sourceIndex, destinationIndex) {
   const cellSeeds = [...tray.cellSeeds];
   const cellIcons = [...tray.cellIcons];
   const cellPlantedAt = [...tray.cellPlantedAt];
+  const cellWaterings = tray.cellWaterings.map(history => [...history]);
   cellSeeds[destinationIndex] = cellSeeds[sourceIndex];
   cellIcons[destinationIndex] = cellIcons[sourceIndex];
   cellPlantedAt[destinationIndex] = cellPlantedAt[sourceIndex];
+  cellWaterings[destinationIndex] = cellWaterings[sourceIndex];
   cellSeeds[sourceIndex] = null;
   cellIcons[sourceIndex] = null;
   cellPlantedAt[sourceIndex] = null;
-  return normalizeTray({ ...tray, cellSeeds, cellIcons, cellPlantedAt });
+  cellWaterings[sourceIndex] = [];
+  return normalizeTray({ ...tray, cellSeeds, cellIcons, cellPlantedAt, cellWaterings });
+}
+
+export function waterCells(value, indices, watering) {
+  const tray = normalizeTray(value);
+  const uniqueIndices = [...new Set(indices)];
+  const entry = normalizeWatering(watering);
+  if (!tray || !entry) throw new TypeError('Revisa la fecha y cantidad de agua.');
+  if (!uniqueIndices.length || uniqueIndices.some(index => !Number.isInteger(index) || index < 0 || index >= tray.capacity)) {
+    throw new RangeError('Selecciona celdas válidas de la charola.');
+  }
+  if (uniqueIndices.some(index => !tray.cellSeeds[index])) throw new TypeError('El riego solo se puede registrar en celdas sembradas.');
+  const cellWaterings = tray.cellWaterings.map(history => [...history]);
+  for (const index of uniqueIndices) {
+    cellWaterings[index] = [...cellWaterings[index], entry].sort((left, right) => left.at.localeCompare(right.at)).slice(-100);
+  }
+  return normalizeTray({ ...tray, cellWaterings });
 }
 
 export function resizeTray(value, rows, columns) {
@@ -281,7 +320,7 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       try {
         trayData = resizeTray({
           ...values, id: tray?.id || defaultId(),
-          cellSeeds: tray?.cellSeeds || [], cellIcons: tray?.cellIcons || [], cellPlantedAt: tray?.cellPlantedAt || [],
+          cellSeeds: tray?.cellSeeds || [], cellIcons: tray?.cellIcons || [], cellPlantedAt: tray?.cellPlantedAt || [], cellWaterings: tray?.cellWaterings || [],
         }, values.rows, values.columns);
       } catch (error) {
         ui.toast(error?.message || 'Revisa el tamaño y los datos de la charola.');
@@ -303,20 +342,28 @@ export function mountGermination(document, ui, storage = safeStorage()) {
   }
 
   function openCellForm(tray, index) {
+    let currentTray = tray;
     const currentSeed = tray.cellSeeds[index] || '';
     const currentIcon = tray.cellIcons[index] || inferPlantIcon(currentSeed || tray.seed);
+    const history = tray.cellWaterings[index] || [];
+    const renderHistory = entries => entries.length
+      ? `<ul class="watering-history-list">${[...entries].reverse().map(entry => `<li><time>${escapeHTML(entry.at.replace('T', ' · '))}</time>${entry.amountMl === null ? '' : `<b>${entry.amountMl} ml</b>`}${entry.note ? `<span>${escapeHTML(entry.note)}</span>` : ''}</li>`).join('')}</ul>`
+      : '<p class="cell-form-hint">Todavía no hay riegos registrados.</p>';
     const iconOptions = PLANT_ICONS.map(icon => `<label class="plant-icon-option"><input type="radio" name="icon" value="${icon.key}" ${currentIcon === icon.key ? 'checked' : ''}><span>${icon.symbol}</span><small>${icon.label}</small></label>`).join('');
-    ui.showDialog(`<form class="detail-content tray-form" id="cellForm"><div class="subtitle">CHAROLA · ${escapeHTML(tray.name)}</div><h2>CELDA ${index + 1}</h2><label>Semilla / variedad<input name="seed" maxlength="100" placeholder="Ej. Lechuga romana" value="${escapeHTML(currentSeed || tray.seed)}"></label><fieldset class="icon-picker"><legend>Icono de la planta</legend><div class="plant-icon-options">${iconOptions}</div></fieldset><label>Fecha de siembra<input name="plantedAt" type="date" required value="${tray.cellPlantedAt[index] || tray.sown || todayISO()}"></label><p class="cell-form-hint">La celda empieza como semilla y evoluciona con los días.</p><div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CELDA</button><button class="link-button" type="button" id="clearCell">VACIAR CELDA</button></div></form>`);
+    const wateringSection = currentSeed ? `<fieldset class="watering-panel"><legend>RIEGOS REGISTRADOS · ${history.length}</legend><div id="cellWateringHistory">${renderHistory(history)}</div><div class="watering-fields"><label>Fecha y hora<input name="wateringAt" type="datetime-local" value="${localDateTimeInputValue()}"></label><label>Cantidad (ml, opcional)<input name="amountMl" type="number" step="any" placeholder="Ej. 20"></label><label>Nota (opcional)<input name="wateringNote" maxlength="160" placeholder="Ej. Humedecí el sustrato"></label></div><div class="detail-actions"><button class="pixel-action" type="button" id="recordWatering">REGISTRAR RIEGO</button></div></fieldset>` : '';
+    ui.showDialog(`<form class="detail-content tray-form" id="cellForm"><div class="subtitle">CHAROLA · ${escapeHTML(tray.name)}</div><h2>CELDA ${index + 1}</h2><label>Semilla / variedad<input name="seed" maxlength="100" placeholder="Ej. Lechuga romana" value="${escapeHTML(currentSeed || tray.seed)}"></label><fieldset class="icon-picker"><legend>Icono de la planta</legend><div class="plant-icon-options">${iconOptions}</div></fieldset><label>Fecha de siembra<input name="plantedAt" type="date" required value="${tray.cellPlantedAt[index] || tray.sown || todayISO()}"></label><p class="cell-form-hint">La celda empieza como semilla y evoluciona con los días.</p>${wateringSection}<div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CELDA</button><button class="link-button" type="button" id="clearCell">VACIAR CELDA</button></div></form>`);
     const form = document.querySelector('#cellForm');
     const saveCell = (seed, icon = currentIcon, plantedAt = tray.sown) => {
-      const cellSeeds = [...tray.cellSeeds];
-      const cellIcons = [...tray.cellIcons];
-      const cellPlantedAt = [...tray.cellPlantedAt];
+      const cellSeeds = [...currentTray.cellSeeds];
+      const cellIcons = [...currentTray.cellIcons];
+      const cellPlantedAt = [...currentTray.cellPlantedAt];
+      const cellWaterings = currentTray.cellWaterings.map(events => [...events]);
       cellSeeds[index] = seed || null;
       cellIcons[index] = seed ? icon : null;
       cellPlantedAt[index] = seed ? plantedAt : null;
+      if (!seed) cellWaterings[index] = [];
       try {
-        const next = repository.save({ ...tray, cellSeeds, cellIcons, cellPlantedAt }, tray.id);
+        const next = repository.save({ ...currentTray, cellSeeds, cellIcons, cellPlantedAt, cellWaterings }, currentTray.id);
         if (apply(next)) ui.closeDialog();
       } catch {
         ui.toast('No se pudo guardar esta celda.');
@@ -329,6 +376,32 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       saveCell(values.get('seed').trim(), values.get('icon'), values.get('plantedAt'));
     });
     document.querySelector('#clearCell')?.addEventListener('click', () => saveCell(''));
+    document.querySelector('#recordWatering')?.addEventListener('click', () => {
+      const atInput = form.elements.namedItem('wateringAt');
+      if (!atInput.value) {
+        ui.toast('Indica la fecha y hora del riego.');
+        return;
+      }
+      const values = new FormData(form);
+      try {
+        const updated = waterCells(currentTray, [index], {
+          at: values.get('wateringAt'), amountMl: values.get('amountMl'), note: values.get('wateringNote'),
+        });
+        const next = repository.save(updated, currentTray.id);
+        const savedTray = next.find(item => item.id === currentTray.id);
+        if (apply(next)) {
+          currentTray = savedTray;
+          document.querySelector('#cellWateringHistory').innerHTML = renderHistory(savedTray.cellWaterings[index]);
+          document.querySelector('.watering-panel legend').textContent = `RIEGOS REGISTRADOS · ${savedTray.cellWaterings[index].length}`;
+          form.elements.namedItem('wateringAt').value = localDateTimeInputValue();
+          form.elements.namedItem('amountMl').value = '';
+          form.elements.namedItem('wateringNote').value = '';
+          ui.toast('Riego registrado.');
+        }
+      } catch (error) {
+        ui.toast(error?.message || 'No se pudo registrar el riego.');
+      }
+    });
   }
 
   function openBulkCellForm(tray) {
@@ -361,6 +434,37 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     });
   }
 
+  function openBulkWateringForm(tray) {
+    const indices = [...selectedCells].filter(index => tray.cellSeeds[index]).sort((a, b) => a - b);
+    if (!indices.length) {
+      ui.toast('Selecciona al menos una celda sembrada.');
+      return;
+    }
+    ui.showDialog(`<form class="detail-content tray-form" id="bulkWateringForm"><div class="subtitle">${escapeHTML(tray.name)} · ${indices.length} SEMILLAS</div><h2>REGISTRAR RIEGO</h2><p class="cell-form-hint">El riego quedará registrado en cada una de las celdas sembradas seleccionadas.</p><div class="watering-fields"><label>Fecha y hora<input name="wateringAt" type="datetime-local" required value="${localDateTimeInputValue()}"></label><label>Cantidad (ml, opcional)<input name="amountMl" type="number" min="1" max="10000" step="any" placeholder="Ej. 20"></label><label>Nota (opcional)<input name="wateringNote" maxlength="160" placeholder="Ej. Humedecí el sustrato"></label></div><div class="detail-actions"><button class="pixel-action" type="submit">REGISTRAR EN ${indices.length} CELDAS</button></div></form>`);
+    const form = document.querySelector('#bulkWateringForm');
+    form?.addEventListener('submit', event => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const values = new FormData(form);
+      let next;
+      try {
+        const updated = waterCells(tray, indices, {
+          at: values.get('wateringAt'), amountMl: values.get('amountMl'), note: values.get('wateringNote'),
+        });
+        next = repository.save(updated, tray.id);
+      } catch (error) {
+        ui.toast(error?.message || 'No se pudieron registrar los riegos.');
+        return;
+      }
+      multiSelectTrayId = '';
+      selectedCells = new Set();
+      if (apply(next)) {
+        ui.closeDialog();
+        ui.toast(`Riego registrado en ${indices.length} celdas.`);
+      }
+    });
+  }
+
   addButton.addEventListener('click', () => openForm());
   document.defaultView?.addEventListener('storage', event => {
     if (event.key !== TRAY_STORAGE_KEY) return;
@@ -372,6 +476,7 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     const moveMode = event.target.closest('[data-cell-move]');
     const cancelMove = event.target.closest('[data-cancel-cell-move]');
     const bulkPlant = event.target.closest('[data-plant-selected]');
+    const bulkWater = event.target.closest('[data-water-selected]');
     const clearSelection = event.target.closest('[data-clear-selection]');
     const cell = event.target.closest('[data-cell-index]');
     const edit = event.target.closest('[data-edit-tray]');
@@ -411,6 +516,11 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     if (bulkPlant) {
       const tray = trays.find(item => item.id === bulkPlant.dataset.plantSelected);
       if (tray) openBulkCellForm(tray);
+      return;
+    }
+    if (bulkWater) {
+      const tray = trays.find(item => item.id === bulkWater.dataset.waterSelected);
+      if (tray) openBulkWateringForm(tray);
       return;
     }
     if (clearSelection) {
@@ -483,12 +593,17 @@ export function renderTray(tray, { multiSelecting = false, selectedCells = new S
         ? '<span class="growth-sprite growth-sprout"><i></i><b></b><b></b></span>'
         : `<span class="growth-sprite growth-plant">${icon.symbol}</span>`;
     const seedIndicator = stage.key === 'plant' ? '' : `<span class="crop-badge" aria-hidden="true">${icon.symbol}</span>`;
-    const label = `Celda ${index + 1}: ${seed}, ${stage.label.toLowerCase()}, día ${age + 1}`;
+    const waterings = tray.cellWaterings?.[index] || [];
+    const lastWatering = waterings.at(-1);
+    const lastWateringLabel = lastWatering ? lastWatering.at.replace('T', ' · ') : '';
+    const waterBadge = lastWatering ? `<span class="cell-water-indicator" title="Último riego: ${escapeHTML(lastWateringLabel)}" aria-label="Último riego ${escapeHTML(lastWateringLabel)}">💧</span>` : '';
+    const label = `Celda ${index + 1}: ${seed}, ${stage.label.toLowerCase()}, día ${age + 1}${lastWatering ? `, último riego ${lastWateringLabel}` : ''}`;
     const cellLabel = `${label}${moving ? (movingSource ? ', origen seleccionado' : moveSourceIndex === null ? ', toca para seleccionar como origen' : ', destino ocupado') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}`;
-    return `<button class="tray-cell sown${stateClass}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected || movingSource}" title="${escapeHTML(cellLabel)}" aria-label="${escapeHTML(cellLabel)}"><span class="cell-icon-box">${visual}${seedIndicator}</span><small>${escapeHTML(seed)}</small></button>`;
+    return `<button class="tray-cell sown${stateClass}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected || movingSource}" title="${escapeHTML(cellLabel)}" aria-label="${escapeHTML(cellLabel)}"><span class="cell-icon-box">${visual}${seedIndicator}</span><small>${escapeHTML(seed)}</small>${waterBadge}</button>`;
   }).join('');
   const selectedCount = selectedCells.size;
-  const selectionToolbar = multiSelecting ? `<div class="cell-selection-toolbar"><span aria-live="polite">${selectedCount} CELDAS SELECCIONADAS</span><button class="pixel-action" type="button" data-plant-selected="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>SEMBRAR SELECCIONADAS</button><button class="link-button" type="button" data-clear-selection="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>LIMPIAR</button></div>` : '';
+  const selectedPlantedCount = [...selectedCells].filter(index => tray.cellSeeds[index]).length;
+  const selectionToolbar = multiSelecting ? `<div class="cell-selection-toolbar"><span aria-live="polite">${selectedCount} CELDAS · ${selectedPlantedCount} SEMBRADAS</span><button class="pixel-action" type="button" data-plant-selected="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>SEMBRAR SELECCIONADAS</button><button class="pixel-action" type="button" data-water-selected="${escapeHTML(tray.id)}" ${selectedPlantedCount ? '' : 'disabled'}>REGISTRAR RIEGO</button><button class="link-button" type="button" data-clear-selection="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>LIMPIAR</button></div>` : '';
   const moveToolbar = moving ? `<div class="cell-selection-toolbar move-cell-toolbar"><span aria-live="polite">${moveSourceIndex === null ? 'ELIGE UNA CELDA SEMBRADA COMO ORIGEN' : `ORIGEN: CELDA ${moveSourceIndex + 1} · ELIGE UN DESTINO VACÍO`}</span><button class="link-button" type="button" data-cancel-cell-move="${escapeHTML(tray.id)}">CANCELAR</button></div>` : '';
   return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${tray.columns}">${cells}</div>${selectionToolbar}${moveToolbar}<div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-cell-move="${escapeHTML(tray.id)}" aria-pressed="${moving}">${moving ? 'CANCELAR MOVER' : 'MOVER CELDAS'}</button><button class="link-button" type="button" data-cell-selection="${escapeHTML(tray.id)}" aria-pressed="${multiSelecting}">${multiSelecting ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR CELDAS'}</button><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
 }
@@ -500,6 +615,10 @@ function escapeHTML(value) {
 function todayISO() {
   const today = new Date();
   return new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function localDateTimeInputValue(now = new Date()) {
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
 function safeStorage() {
