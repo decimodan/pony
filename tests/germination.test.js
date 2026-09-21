@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, normalizeTray, stageFor, TRAY_STORAGE_KEY,
+  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, normalizeTray, resizeTray, stageFor, TRAY_STORAGE_KEY,
 } from '../germination.js';
 import { resolveDestination } from '../navigation.js';
 
@@ -27,20 +27,40 @@ test('normalizes valid tray values and rejects corrupt/unsafe fields', () => {
   assert.equal(normalized.cellSeeds[40], null);
   assert.equal(normalized.cellIcons[0], 'seedling');
   assert.equal(normalized.cellPlantedAt[0], sample.sown);
+  assert.equal(normalized.rows, 6);
+  assert.equal(normalized.columns, 12);
+  const legacyMismatch = normalizeTray({ ...sample, size: '9×10', capacity: 72 });
+  assert.equal(legacyMismatch.capacity, 90);
+  assert.equal(legacyMismatch.cellSeeds[39], 'Cherry');
+  assert.equal(legacyMismatch.cellSeeds[72], null);
   assert.equal(normalizeTray({ ...sample, cellSeeds: ['Cherry', null, 'Romaine'] }).seeded, 2);
-  const iconData = normalizeTray({ ...sample, capacity: 2, seeded: 0,
+  const iconData = normalizeTray({ ...sample, size: '1×2', capacity: 2, seeded: 0,
     cellSeeds: ['Arugula', 'Romaine'], cellIcons: ['basil', 'unknown'],
     cellPlantedAt: ['2026-09-19', 'bad-date'] });
   assert.deepEqual(iconData.cellIcons, ['basil', 'seedling']);
   assert.deepEqual(iconData.cellPlantedAt, ['2026-09-19', sample.sown]);
   assert.equal(inferPlantIcon('Fresa'), 'strawberry');
   assert.equal(inferPlantIcon('Menta'), 'basil');
-  assert.equal(normalizeTray({ ...sample, cellSeeds: ['Cherry', null, 'Romaine'], capacity: 2 }).cellSeeds.length, 2);
+  assert.equal(normalizeTray({ ...sample, size: '1×2', cellSeeds: ['Cherry', null, 'Romaine'], capacity: 2 }).cellSeeds.length, 2);
   assert.equal(normalizeTray({ ...sample, capacity: 241 }), null);
   assert.equal(normalizeTray({ ...sample, seeded: -1 }), null);
   assert.equal(normalizeTray({ ...sample, seeded: 73 }), null);
   assert.equal(normalizeTray({ ...sample, sown: '2026-02-31' }), null);
   assert.equal(normalizeTray({ ...sample, name: '' }), null);
+});
+
+test('resizes trays by rows and columns while preserving planted cell metadata', () => {
+  const tray = normalizeTray({ ...sample, cellSeeds: ['Menta', null, ...Array(70).fill(null)],
+    cellIcons: ['basil'], cellPlantedAt: ['2026-09-19'] });
+  const enlarged = resizeTray(tray, 7, 12);
+  assert.equal(enlarged.size, '7×12');
+  assert.equal(enlarged.capacity, 84);
+  assert.equal(enlarged.cellSeeds[0], 'Menta');
+  assert.equal(enlarged.cellIcons[0], 'basil');
+  assert.equal(enlarged.cellPlantedAt[0], '2026-09-19');
+  assert.equal(enlarged.cellSeeds[83], null);
+  assert.throws(() => resizeTray(tray, 21, 12), RangeError);
+  assert.throws(() => resizeTray(tray, 0, 12), TypeError);
 });
 
 test('repository reads malformed JSON safely and filters malformed entries', () => {
