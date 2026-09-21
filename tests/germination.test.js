@@ -153,7 +153,7 @@ test('records watering history for planted cells only', () => {
   assert.deepEqual(watered.cellWaterings[2], watered.cellWaterings[0]);
   assert.deepEqual(watered.cellWaterings[1], []);
   assert.match(renderTray(watered), /cell-water-indicator/);
-  assert.match(renderTray(watered), /Último riego 2026-09-21 · 09:30/);
+  assert.match(renderTray(watered), /Último riego 21\/09\/2026 · 09:30/);
   const newer = waterCells(watered, [0], { at: '2026-09-21T10:00' });
   assert.equal(newer.cellWaterings[0].length, 2);
   assert.equal(waterCells(newer, [0], { at: '2026-09-19T10:00' }).cellWaterings[0].at(-1).at, '2026-09-21T10:00');

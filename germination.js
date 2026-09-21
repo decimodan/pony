@@ -347,10 +347,10 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     const currentIcon = tray.cellIcons[index] || inferPlantIcon(currentSeed || tray.seed);
     const history = tray.cellWaterings[index] || [];
     const renderHistory = entries => entries.length
-      ? `<ul class="watering-history-list">${[...entries].reverse().map(entry => `<li><time>${escapeHTML(entry.at.replace('T', ' · '))}</time>${entry.amountMl === null ? '' : `<b>${entry.amountMl} ml</b>`}${entry.note ? `<span>${escapeHTML(entry.note)}</span>` : ''}</li>`).join('')}</ul>`
+      ? `<ul class="watering-history-list">${[...entries].reverse().map(entry => `<li><time>${escapeHTML(formatWateringDateTime(entry.at))}</time>${entry.amountMl === null ? '' : `<b>${entry.amountMl} ml</b>`}${entry.note ? `<span>${escapeHTML(entry.note)}</span>` : ''}</li>`).join('')}</ul>`
       : '<p class="cell-form-hint">Todavía no hay riegos registrados.</p>';
     const iconOptions = PLANT_ICONS.map(icon => `<label class="plant-icon-option"><input type="radio" name="icon" value="${icon.key}" ${currentIcon === icon.key ? 'checked' : ''}><span>${icon.symbol}</span><small>${icon.label}</small></label>`).join('');
-    const wateringSection = currentSeed ? `<fieldset class="watering-panel"><legend>RIEGOS REGISTRADOS · ${history.length}</legend><div id="cellWateringHistory">${renderHistory(history)}</div><div class="watering-fields"><label>Fecha y hora<input name="wateringAt" type="datetime-local" value="${localDateTimeInputValue()}"></label><label>Cantidad (ml, opcional)<input name="amountMl" type="number" step="any" placeholder="Ej. 20"></label><label>Nota (opcional)<input name="wateringNote" maxlength="160" placeholder="Ej. Humedecí el sustrato"></label></div><div class="detail-actions"><button class="pixel-action" type="button" id="recordWatering">REGISTRAR RIEGO</button></div></fieldset>` : '';
+    const wateringSection = currentSeed ? `<fieldset class="watering-panel"><legend>RIEGOS REGISTRADOS · ${history.length}</legend><div id="cellWateringHistory">${renderHistory(history)}</div>${wateringInputsHTML()}<div class="detail-actions"><button class="pixel-action" type="button" id="recordWatering">REGISTRAR RIEGO</button></div></fieldset>` : '';
     ui.showDialog(`<form class="detail-content tray-form" id="cellForm"><div class="subtitle">CHAROLA · ${escapeHTML(tray.name)}</div><h2>CELDA ${index + 1}</h2><label>Semilla / variedad<input name="seed" maxlength="100" placeholder="Ej. Lechuga romana" value="${escapeHTML(currentSeed || tray.seed)}"></label><fieldset class="icon-picker"><legend>Icono de la planta</legend><div class="plant-icon-options">${iconOptions}</div></fieldset><label>Fecha de siembra<input name="plantedAt" type="date" required value="${tray.cellPlantedAt[index] || tray.sown || todayISO()}"></label><p class="cell-form-hint">La celda empieza como semilla y evoluciona con los días.</p>${wateringSection}<div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CELDA</button><button class="link-button" type="button" id="clearCell">VACIAR CELDA</button></div></form>`);
     const form = document.querySelector('#cellForm');
     const saveCell = (seed, icon = currentIcon, plantedAt = tray.sown) => {
@@ -377,15 +377,17 @@ export function mountGermination(document, ui, storage = safeStorage()) {
     });
     document.querySelector('#clearCell')?.addEventListener('click', () => saveCell(''));
     document.querySelector('#recordWatering')?.addEventListener('click', () => {
-      const atInput = form.elements.namedItem('wateringAt');
-      if (!atInput.value) {
+      const dateInput = form.elements.namedItem('wateringDate');
+      const timeInput = form.elements.namedItem('wateringTime');
+      if (!dateInput.value || !timeInput.value) {
         ui.toast('Indica la fecha y hora del riego.');
         return;
       }
       const values = new FormData(form);
       try {
         const updated = waterCells(currentTray, [index], {
-          at: values.get('wateringAt'), amountMl: values.get('amountMl'), note: values.get('wateringNote'),
+          at: `${values.get('wateringDate')}T${values.get('wateringTime')}`,
+          amountMl: values.get('amountMl'), note: values.get('wateringNote'),
         });
         const next = repository.save(updated, currentTray.id);
         const savedTray = next.find(item => item.id === currentTray.id);
@@ -393,7 +395,9 @@ export function mountGermination(document, ui, storage = safeStorage()) {
           currentTray = savedTray;
           document.querySelector('#cellWateringHistory').innerHTML = renderHistory(savedTray.cellWaterings[index]);
           document.querySelector('.watering-panel legend').textContent = `RIEGOS REGISTRADOS · ${savedTray.cellWaterings[index].length}`;
-          form.elements.namedItem('wateringAt').value = localDateTimeInputValue();
+          const newWateringTime = localDateTimeInputValue();
+          form.elements.namedItem('wateringDate').value = newWateringTime.date;
+          form.elements.namedItem('wateringTime').value = newWateringTime.time;
           form.elements.namedItem('amountMl').value = '';
           form.elements.namedItem('wateringNote').value = '';
           ui.toast('Riego registrado.');
@@ -440,7 +444,7 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       ui.toast('Selecciona al menos una celda sembrada.');
       return;
     }
-    ui.showDialog(`<form class="detail-content tray-form" id="bulkWateringForm"><div class="subtitle">${escapeHTML(tray.name)} · ${indices.length} SEMILLAS</div><h2>REGISTRAR RIEGO</h2><p class="cell-form-hint">El riego quedará registrado en cada una de las celdas sembradas seleccionadas.</p><div class="watering-fields"><label>Fecha y hora<input name="wateringAt" type="datetime-local" required value="${localDateTimeInputValue()}"></label><label>Cantidad (ml, opcional)<input name="amountMl" type="number" min="1" max="10000" step="any" placeholder="Ej. 20"></label><label>Nota (opcional)<input name="wateringNote" maxlength="160" placeholder="Ej. Humedecí el sustrato"></label></div><div class="detail-actions"><button class="pixel-action" type="submit">REGISTRAR EN ${indices.length} CELDAS</button></div></form>`);
+    ui.showDialog(`<form class="detail-content tray-form" id="bulkWateringForm"><div class="subtitle">${escapeHTML(tray.name)} · ${indices.length} SEMILLAS</div><h2>REGISTRAR RIEGO</h2><p class="cell-form-hint">El riego quedará registrado en cada una de las celdas sembradas seleccionadas.</p>${wateringInputsHTML({ required: true })}<div class="detail-actions"><button class="pixel-action" type="submit">REGISTRAR EN ${indices.length} CELDAS</button></div></form>`);
     const form = document.querySelector('#bulkWateringForm');
     form?.addEventListener('submit', event => {
       event.preventDefault();
@@ -449,7 +453,8 @@ export function mountGermination(document, ui, storage = safeStorage()) {
       let next;
       try {
         const updated = waterCells(tray, indices, {
-          at: values.get('wateringAt'), amountMl: values.get('amountMl'), note: values.get('wateringNote'),
+          at: `${values.get('wateringDate')}T${values.get('wateringTime')}`,
+          amountMl: values.get('amountMl'), note: values.get('wateringNote'),
         });
         next = repository.save(updated, tray.id);
       } catch (error) {
@@ -595,7 +600,7 @@ export function renderTray(tray, { multiSelecting = false, selectedCells = new S
     const seedIndicator = stage.key === 'plant' ? '' : `<span class="crop-badge" aria-hidden="true">${icon.symbol}</span>`;
     const waterings = tray.cellWaterings?.[index] || [];
     const lastWatering = waterings.at(-1);
-    const lastWateringLabel = lastWatering ? lastWatering.at.replace('T', ' · ') : '';
+    const lastWateringLabel = lastWatering ? formatWateringDateTime(lastWatering.at) : '';
     const waterBadge = lastWatering ? `<span class="cell-water-indicator" title="Último riego: ${escapeHTML(lastWateringLabel)}" aria-label="Último riego ${escapeHTML(lastWateringLabel)}">💧</span>` : '';
     const label = `Celda ${index + 1}: ${seed}, ${stage.label.toLowerCase()}, día ${age + 1}${lastWatering ? `, último riego ${lastWateringLabel}` : ''}`;
     const cellLabel = `${label}${moving ? (movingSource ? ', origen seleccionado' : moveSourceIndex === null ? ', toca para seleccionar como origen' : ', destino ocupado') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}`;
@@ -618,7 +623,22 @@ function todayISO() {
 }
 
 function localDateTimeInputValue(now = new Date()) {
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const value = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  return { date: value.slice(0, 10), time: value.slice(11) };
+}
+
+function wateringInputsHTML({ required = false } = {}) {
+  const value = localDateTimeInputValue();
+  const requiredAttribute = required ? 'required' : '';
+  const amountLimits = required ? 'min="1" max="10000"' : '';
+  return `<div class="watering-fields"><label>Fecha<input lang="es-MX" name="wateringDate" type="date" ${requiredAttribute} value="${value.date}"></label><label>Hora<input lang="es-MX" name="wateringTime" type="time" ${requiredAttribute} value="${value.time}"></label><label>Cantidad (ml, opcional)<input name="amountMl" type="number" ${amountLimits} step="any" placeholder="Ej. 20"></label><label>Nota (opcional)<input name="wateringNote" maxlength="160" placeholder="Ej. Humedecí el sustrato"></label></div>`;
+}
+
+function formatWateringDateTime(value) {
+  if (!validDateTime(value)) return value;
+  const [date, time] = value.split('T');
+  const [year, month, day] = date.split('-');
+  return `${day}/${month}/${year} · ${time}`;
 }
 
 function safeStorage() {
