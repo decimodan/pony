@@ -146,6 +146,38 @@ export function cellGrowthStage(days) {
   return { key: 'plant', label: days < 18 ? 'PLÁNTULA' : 'LISTA PARA TRASPLANTE' };
 }
 
+export function trayPlantingAgeLabel(tray, now = new Date()) {
+  const ages = tray.cellSeeds
+    .map((seed, index) => seed ? daysSince(tray.cellPlantedAt[index] || tray.sown, now) + 1 : null)
+    .filter(Number.isInteger)
+    .sort((left, right) => left - right);
+  if (!ages.length) return 'Sin sembrar';
+  const first = ages[0];
+  const last = ages.at(-1);
+  return first === last ? `Día ${first}` : `Día ${first}–${last}`;
+}
+
+function latestTrayWatering(tray) {
+  return (tray.cellWaterings || []).flat().filter(entry => validDateTime(entry?.at))
+    .reduce((latest, entry) => !latest || entry.at > latest.at ? entry : latest, null);
+}
+
+export function wateringAgeLabel(tray, now = new Date()) {
+  const latest = latestTrayWatering(tray);
+  if (!latest) return 'Sin riego';
+  const wateredAt = new Date(`${latest.at}:00`);
+  const elapsed = now.getTime() - wateredAt.getTime();
+  if (!Number.isFinite(elapsed)) return 'Sin riego';
+  if (elapsed < 0) return 'Fecha futura';
+  const minutes = Math.floor(elapsed / 60000);
+  if (minutes < 1) return 'Ahora';
+  if (minutes < 60) return `Hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  return `Hace ${days} ${days === 1 ? 'día' : 'días'}`;
+}
+
 export function inferPlantIcon(seedName) {
   const name = String(seedName || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (/fresa|strawberr/.test(name)) return 'strawberry';
@@ -563,16 +595,19 @@ export function mountGermination(document, ui, storage = safeStorage()) {
   render();
 }
 
-export function renderTray(tray, { multiSelecting = false, selectedCells = new Set(), moving = false, moveSourceIndex = null } = {}) {
+export function renderTray(tray, { multiSelecting = false, selectedCells = new Set(), moving = false, moveSourceIndex = null, now = new Date() } = {}) {
   const filled = tray.cellSeeds.filter(Boolean).length;
-  const days = daysSince(tray.sown);
+  const days = daysSince(tray.sown, now);
+  const plantingAge = trayPlantingAgeLabel(tray, now);
+  const latestWatering = latestTrayWatering(tray);
+  const wateringAge = wateringAgeLabel(tray, now);
   const cells = tray.cellSeeds.map((seed, index) => {
     const selected = selectedCells.has(index);
     const movingSource = moving && moveSourceIndex === index;
     const stateClass = `${selected ? ' selected-cell' : ''}${movingSource ? ' move-source-cell' : ''}`;
     if (!seed) return `<button class="tray-cell${stateClass}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected || movingSource}" title="Celda ${index + 1}: vacía${moving ? (moveSourceIndex === null ? ', elige primero una celda sembrada' : ', destino disponible') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}" aria-label="Celda ${index + 1}: vacía${moving ? (moveSourceIndex === null ? ', elige primero una celda sembrada' : ', destino disponible') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}">·</button>`;
     const plantedAt = tray.cellPlantedAt[index] || tray.sown;
-    const age = daysSince(plantedAt);
+    const age = daysSince(plantedAt, now);
     const stage = cellGrowthStage(age);
     const icon = PLANT_ICONS.find(item => item.key === tray.cellIcons[index]) || PLANT_ICONS[0];
     const visual = stage.key === 'seed'
@@ -593,7 +628,7 @@ export function renderTray(tray, { multiSelecting = false, selectedCells = new S
   const selectedPlantedCount = [...selectedCells].filter(index => tray.cellSeeds[index]).length;
   const selectionToolbar = multiSelecting ? `<div class="cell-selection-toolbar"><span aria-live="polite">${selectedCount} CELDAS · ${selectedPlantedCount} SEMBRADAS</span><button class="pixel-action watering-action" type="button" data-water-selected="${escapeHTML(tray.id)}" aria-label="Regar ${selectedPlantedCount} celdas sembradas" title="Registrar riego ahora en las celdas sembradas seleccionadas" ${selectedPlantedCount ? '' : 'disabled'}><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M9 20h20a4 4 0 0 1 4 4v14H9zM13 20v-4a7 7 0 0 1 14 0v4M33 24l8-5 3 4-11 8M9 25H4v9h5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="round"/><path d="M39 12v2m5 1-1 2m-9-4 1 2" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square"/></svg><span>REGAR SELECCIONADAS</span></button><button class="pixel-action" type="button" data-plant-selected="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>SEMBRAR SELECCIONADAS</button><button class="link-button" type="button" data-clear-selection="${escapeHTML(tray.id)}" ${selectedCount ? '' : 'disabled'}>LIMPIAR</button></div>` : '';
   const moveToolbar = moving ? `<div class="cell-selection-toolbar move-cell-toolbar"><span aria-live="polite">${moveSourceIndex === null ? 'ELIGE UNA CELDA SEMBRADA COMO ORIGEN' : `ORIGEN: CELDA ${moveSourceIndex + 1} · ELIGE UN DESTINO VACÍO`}</span><button class="link-button" type="button" data-cancel-cell-move="${escapeHTML(tray.id)}">CANCELAR</button></div>` : '';
-  return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)} · DÍA ${days + 1}</span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span><span>◉ Siembra: <b>${escapeHTML(tray.sown)}</b></span></div><div class="tray-cells" style="--tray-cols:${tray.columns}">${cells}</div>${selectionToolbar}${moveToolbar}<div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-cell-move="${escapeHTML(tray.id)}" aria-pressed="${moving}">${moving ? 'CANCELAR MOVER' : 'MOVER CELDAS'}</button><button class="link-button" type="button" data-cell-selection="${escapeHTML(tray.id)}" aria-pressed="${multiSelecting}">${multiSelecting ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR CELDAS'}</button><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
+  return `<article class="tray-card"><div class="tray-card-head"><div><small>CHAROLA · ${escapeHTML(tray.size)}</small><h3>${escapeHTML(tray.name)}</h3></div><span class="tray-stage">${stageFor(days)}</span></div><div class="tray-quick-stats"><span><small>SEMBRADO</small><b>${escapeHTML(plantingAge)}</b></span><span><small>ÚLTIMO RIEGO</small><b title="${latestWatering ? `Fecha: ${escapeHTML(formatWateringDateTime(latestWatering.at))}` : 'No hay riegos registrados'}">${escapeHTML(wateringAge)}</b></span></div><div class="tray-meta"><span>🌱 <b>${escapeHTML(tray.seed)}</b></span><span>▧ Sustrato: <b>${escapeHTML(tray.substrate)}</b></span></div><div class="tray-cells" style="--tray-cols:${tray.columns}">${cells}</div>${selectionToolbar}${moveToolbar}<div class="tray-card-foot"><span>${filled} / ${tray.capacity} celdas sembradas</span><button class="link-button" type="button" data-cell-move="${escapeHTML(tray.id)}" aria-pressed="${moving}">${moving ? 'CANCELAR MOVER' : 'MOVER CELDAS'}</button><button class="link-button" type="button" data-cell-selection="${escapeHTML(tray.id)}" aria-pressed="${multiSelecting}">${multiSelecting ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR CELDAS'}</button><button class="link-button" type="button" data-edit-tray="${escapeHTML(tray.id)}">EDITAR</button><button class="link-button remove-tray" type="button" data-remove-tray="${escapeHTML(tray.id)}">ELIMINAR</button></div></article>`;
 }
 
 function escapeHTML(value) {

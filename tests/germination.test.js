@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, moveCell, normalizeTray, renderTray, resizeTray, stageFor, TRAY_STORAGE_KEY, waterCells,
+  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, moveCell, normalizeTray, renderTray, resizeTray, stageFor, trayPlantingAgeLabel, TRAY_STORAGE_KEY, waterCells, wateringAgeLabel,
 } from '../germination.js';
 import { resolveDestination } from '../navigation.js';
 
@@ -165,6 +165,23 @@ test('records watering history for planted cells only', () => {
   assert.throws(() => waterCells(tray, [1], { at: '2026-09-21T09:30' }), /celdas sembradas/);
   assert.throws(() => waterCells(tray, [0], { at: '2026-02-31T09:30' }), /fecha y cantidad/);
   assert.throws(() => waterCells(tray, [0], { at: '2026-09-21T09:30', amountMl: '0' }), /fecha y cantidad/);
+});
+
+test('summarizes planted age and latest watering time in compact tray status', () => {
+  const now = new Date(2026, 8, 21, 10, 0);
+  const dry = normalizeTray({ ...sample, seeded: 0, cellSeeds: ['Menta', ...Array(71).fill(null)] });
+  assert.equal(trayPlantingAgeLabel(dry, now), 'Día 2');
+  assert.equal(wateringAgeLabel(dry, now), 'Sin riego');
+  const staggered = normalizeTray({ ...dry,
+    cellSeeds: ['Menta', 'Cherry', ...Array(70).fill(null)],
+    cellPlantedAt: ['2026-09-20', '2026-09-21'] });
+  assert.equal(trayPlantingAgeLabel(staggered, now), 'Día 1–2');
+  const watered = waterCells(dry, [0], { at: '2026-09-21T09:30' });
+  assert.equal(wateringAgeLabel(watered, now), 'Hace 30 min');
+  const markup = renderTray(watered, { now });
+  assert.match(markup, /ÚLTIMO RIEGO/);
+  assert.match(markup, /Hace 30 min/);
+  assert.match(markup, /SEMBRADO/);
 });
 
 test('growth age uses calendar days and clamps future dates', () => {
