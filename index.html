@@ -45,7 +45,14 @@
 
     <section class="bottom-grid"><section class="window-frame quest-window"><div class="window-title"><span>☷ TODAY'S QUESTS</span><span class="xp">+20 FARM XP</span></div><div class="quests"><label class="quest done"><input type="checkbox" checked><span class="check"></span><span>Check reservoir level</span><em>DONE</em></label><label class="quest done"><input type="checkbox" checked><span class="check"></span><span>Inspect strawberry roots</span><em>DONE</em></label><label class="quest"><input type="checkbox"><span class="check"></span><span>Calibrate pH sensor</span><em>+10 XP</em></label><label class="quest"><input type="checkbox"><span class="check"></span><span>Clean filter</span><em>+10 XP</em></label></div></section><section class="window-frame harvest-window"><div class="window-title"><span>✿ HARVEST LOG</span><button class="link-button">STATISTICS →</button></div><div class="harvest-stats"><div><small>TODAY</small><strong>420<em>g</em></strong><span>strawberries</span></div><div><small>THIS MONTH</small><strong>8.4<em>kg</em></strong><span>+12% from last month</span></div><div><small>ALL TIME</small><strong>42.7<em>kg</em></strong><span>68 harvests</span></div></div></section></section>
 
-    <nav class="bottom-nav"><button class="nav-item active" data-nav="MAP"><span>⌂</span>MAP</button><button class="nav-item" data-nav="PLANTS"><span>✿</span>PLANTS <b>42</b></button><button class="nav-item" data-nav="SYSTEMS"><span>▦</span>SYSTEMS</button><button class="nav-item" data-nav="INVENTORY"><span>▤</span>INVENTORY</button><button class="nav-item" data-nav="STATS"><span>◒</span>STATS</button><button class="nav-item" data-nav="SETTINGS"><span>⚙</span>SETTINGS</button></nav>
+    <section class="germination-view" id="germinationView" hidden>
+      <div class="germination-heading"><div><div class="subtitle">SEED STARTING ROOM</div><h2>GERMINACIÓN</h2><p>Simula charolas, semillas y sustratos desde la siembra hasta el trasplante.</p></div><button class="pixel-action" id="addTray">＋ NUEVA CHAROLA</button></div>
+      <div class="germination-summary" id="germinationSummary"></div>
+      <div class="tray-list" id="trayList"></div>
+      <p class="germination-note">Los datos se guardan en este dispositivo. Puedes ajustar la configuración de cada charola.</p>
+    </section>
+
+    <nav class="bottom-nav"><button class="nav-item active" data-nav="MAP"><span>⌂</span>MAP</button><button class="nav-item" data-nav="PLANTS"><span>✿</span>PLANTS <b>42</b></button><button class="nav-item" data-nav="SYSTEMS"><span>▦</span>SYSTEMS</button><button class="nav-item" data-nav="GERMINACIÓN"><span>♧</span>GERMINACIÓN</button><button class="nav-item" data-nav="INVENTORY"><span>▤</span>INVENTORY</button><button class="nav-item" data-nav="STATS"><span>◒</span>STATS</button><button class="nav-item" data-nav="SETTINGS"><span>⚙</span>SETTINGS</button></nav>
   </main>
 
   <dialog class="detail-dialog" id="detailDialog"><button class="close-dialog" id="closeDialog" aria-label="Close">×</button><div id="dialogContent"></div></dialog>
