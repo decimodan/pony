@@ -149,6 +149,43 @@ export function cellGrowthStage(days) {
   return { key: 'plant', label: days < 18 ? 'PLÁNTULA' : 'LISTA PARA TRASPLANTE' };
 }
 
+const ISU_GERMINATION_SOURCE = 'https://yardandgarden.extension.iastate.edu/how-to/germination-requirements-annuals-and-vegetables';
+const UCANR_MINT_SOURCE = 'https://ucanr.edu/node/125167/printable/print';
+const GERMINATION_RANGES = [
+  { match: /tomate|jitomate|tomato|cherry/, name: 'Tomate', min: 6, max: 12, source: ISU_GERMINATION_SOURCE },
+  { match: /chile|pimiento|jalap|serrano|pepper/, name: 'Chile / pimiento', min: 7, max: 10, source: ISU_GERMINATION_SOURCE },
+  { match: /pepino|cucumber/, name: 'Pepino', min: 3, max: 10, source: ISU_GERMINATION_SOURCE },
+  { match: /lechuga|lettuce/, name: 'Lechuga', min: 7, max: 14, source: ISU_GERMINATION_SOURCE },
+  { match: /albahaca|basil/, name: 'Albahaca', min: 10, max: 14, source: ISU_GERMINATION_SOURCE },
+  { match: /menta|hierbabuena|mint/, name: 'Menta', min: 10, max: 15, source: UCANR_MINT_SOURCE },
+  { match: /perejil|parsley/, name: 'Perejil', min: 20, max: 25, source: ISU_GERMINATION_SOURCE },
+  { match: /apio|celery/, name: 'Apio', min: 14, max: 21, source: ISU_GERMINATION_SOURCE },
+  { match: /cebolla|onion/, name: 'Cebolla', min: 4, max: 20, source: ISU_GERMINATION_SOURCE },
+  { match: /eneldo|dill/, name: 'Eneldo', min: 7, max: 14, source: ISU_GERMINATION_SOURCE },
+  { match: /col rizada|kale/, name: 'Kale', min: 4, max: 7, source: ISU_GERMINATION_SOURCE },
+  { match: /brocoli|broccoli/, name: 'Brócoli', min: 4, max: 7, source: ISU_GERMINATION_SOURCE },
+  { match: /col|repollo|cabbage/, name: 'Col', min: 4, max: 7, source: ISU_GERMINATION_SOURCE },
+  { match: /rabano|radish/, name: 'Rábano', min: 3, max: 4, source: ISU_GERMINATION_SOURCE },
+  { match: /espinaca|spinach/, name: 'Espinaca', min: 7, max: 14, source: ISU_GERMINATION_SOURCE },
+];
+
+export function germinationEstimate(seedName, sownAt, now = new Date()) {
+  const normalized = String(seedName || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const range = GERMINATION_RANGES.find(item => item.match.test(normalized));
+  if (!range) return { supported: false, label: 'Sin promedio específico', detail: 'No hay un tiempo de referencia para esta semilla; revisa su empaque.' };
+  const average = Math.round((range.min + range.max) / 2);
+  const elapsed = daysSince(sownAt, now);
+  let label;
+  if (elapsed < range.min) label = `~${average - elapsed} d · rango ${range.min}–${range.max} d`;
+  else if (elapsed < average) label = `Puede germinar · prom. en ${average - elapsed} d`;
+  else if (elapsed <= range.max) label = `Puede germinar · prom. día ${average}`;
+  else label = `+${elapsed - range.max} d sobre rango`;
+  const detail = elapsed > range.max
+    ? `${range.name}: rango habitual ${range.min}–${range.max} días; lleva ${elapsed - range.max} días fuera del rango.`
+    : `${range.name}: ${range.min}–${range.max} días; promedio orientativo ~${average} días. Día ${elapsed + 1} desde la siembra.`;
+  return { supported: true, name: range.name, min: range.min, max: range.max, average, elapsed, remaining: Math.max(average - elapsed, 0), source: range.source, label, detail };
+}
+
 export function trayPlantingAgeLabel(tray, now = new Date()) {
   const ages = tray.cellSeeds
     .map((seed, index) => seed ? daysSince(tray.cellPlantedAt[index] || tray.sown, now) + 1 : null)
@@ -409,13 +446,25 @@ export function mountGermination(document, ui, storage = safeStorage(), actors =
     const currentSeed = tray.cellSeeds[index] || '';
     const currentIcon = tray.cellIcons[index] || inferPlantIcon(currentSeed || tray.seed);
     const history = tray.cellWaterings[index] || [];
+    const estimateMarkup = (seed, plantedAt) => {
+      const estimate = germinationEstimate(seed, plantedAt);
+      return estimate.supported
+        ? `<p class="germination-estimate-detail" data-germination-estimate>${escapeHTML(estimate.detail)} · <a href="${estimate.source}" target="_blank" rel="noreferrer">fuente</a></p>`
+        : `<p class="germination-estimate-detail muted" data-germination-estimate>${escapeHTML(estimate.detail)}</p>`;
+    };
     const renderHistory = entries => entries.length
       ? `<ul class="watering-history-list">${[...entries].reverse().map(entry => `<li><time>${escapeHTML(formatWateringDateTime(entry.at))}</time>${entry.actor ? `<b>${escapeHTML(entry.actor.name)}</b>` : ''}${entry.amountMl === null ? '' : `<b>${entry.amountMl} ml</b>`}${entry.note ? `<span>${escapeHTML(entry.note)}</span>` : ''}</li>`).join('')}</ul>`
       : '<p class="cell-form-hint">Todavía no hay riegos registrados.</p>';
     const iconOptions = PLANT_ICONS.map(icon => `<label class="plant-icon-option"><input type="radio" name="icon" value="${icon.key}" ${currentIcon === icon.key ? 'checked' : ''}><span>${icon.symbol}</span><small>${icon.label}</small></label>`).join('');
     const wateringSection = currentSeed ? `<fieldset class="watering-panel"><legend>RIEGOS REGISTRADOS · ${history.length}</legend><div id="cellWateringHistory">${renderHistory(history)}</div>${wateringInputsHTML()}<div class="detail-actions"><button class="pixel-action" type="button" id="recordWatering">REGISTRAR RIEGO</button></div></fieldset>` : '';
-    ui.showDialog(`<form class="detail-content tray-form" id="cellForm"><div class="subtitle">CHAROLA · ${escapeHTML(tray.name)}</div><h2>CELDA ${index + 1}</h2><label>Semilla / variedad<input name="seed" maxlength="100" placeholder="Ej. Lechuga romana" value="${escapeHTML(currentSeed || tray.seed)}"></label><fieldset class="icon-picker"><legend>Icono de la planta</legend><div class="plant-icon-options">${iconOptions}</div></fieldset><label>Fecha de siembra<input name="plantedAt" type="date" required value="${tray.cellPlantedAt[index] || tray.sown || todayISO()}"></label><p class="cell-form-hint">La celda empieza como semilla y evoluciona con los días.</p>${wateringSection}<div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CELDA</button><button class="link-button" type="button" id="clearCell">VACIAR CELDA</button></div></form>`);
+    ui.showDialog(`<form class="detail-content tray-form" id="cellForm"><div class="subtitle">CHAROLA · ${escapeHTML(tray.name)}</div><h2>CELDA ${index + 1}</h2><label>Semilla / variedad<input name="seed" maxlength="100" placeholder="Ej. Lechuga romana" value="${escapeHTML(currentSeed || tray.seed)}"></label><fieldset class="icon-picker"><legend>Icono de la planta</legend><div class="plant-icon-options">${iconOptions}</div></fieldset><label>Fecha de siembra<input name="plantedAt" type="date" required value="${tray.cellPlantedAt[index] || tray.sown || todayISO()}"></label>${estimateMarkup(currentSeed || tray.seed, tray.cellPlantedAt[index] || tray.sown || todayISO())}<p class="cell-form-hint">La celda empieza como semilla y evoluciona con los días.</p>${wateringSection}<div class="detail-actions"><button class="pixel-action" type="submit">GUARDAR CELDA</button><button class="link-button" type="button" id="clearCell">VACIAR CELDA</button></div></form>`);
     const form = document.querySelector('#cellForm');
+    const updateEstimate = () => {
+      const target = form?.querySelector('[data-germination-estimate]');
+      if (target) target.outerHTML = estimateMarkup(form.elements.namedItem('seed').value, form.elements.namedItem('plantedAt').value);
+    };
+    form?.elements.namedItem('seed')?.addEventListener('input', updateEstimate);
+    form?.elements.namedItem('plantedAt')?.addEventListener('change', updateEstimate);
     const saveCell = (seed, icon = currentIcon, plantedAt = tray.sown) => {
       const cellSeeds = [...currentTray.cellSeeds];
       const cellIcons = [...currentTray.cellIcons];
@@ -660,6 +709,7 @@ export function renderTray(tray, { multiSelecting = false, selectedCells = new S
     if (!seed) return `<button class="tray-cell${stateClass}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected || movingSource}" title="Celda ${index + 1}: vacía${moving ? (moveSourceIndex === null ? ', elige primero una celda sembrada' : ', destino disponible') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}" aria-label="Celda ${index + 1}: vacía${moving ? (moveSourceIndex === null ? ', elige primero una celda sembrada' : ', destino disponible') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}">·</button>`;
     const plantedAt = tray.cellPlantedAt[index] || tray.sown;
     const age = daysSince(plantedAt, now);
+    const estimate = germinationEstimate(seed, plantedAt, now);
     const stage = cellGrowthStage(age);
     const icon = PLANT_ICONS.find(item => item.key === tray.cellIcons[index]) || PLANT_ICONS[0];
     const visual = stage.key === 'seed'
@@ -672,9 +722,10 @@ export function renderTray(tray, { multiSelecting = false, selectedCells = new S
     const lastWatering = waterings.at(-1);
     const lastWateringLabel = lastWatering ? formatWateringDateTime(lastWatering.at) : '';
     const waterBadge = lastWatering ? `<span class="cell-water-indicator" title="Último riego: ${escapeHTML(lastWateringLabel)}" aria-label="Último riego ${escapeHTML(lastWateringLabel)}">💧</span>` : '';
-    const label = `Celda ${index + 1}: ${seed}, ${stage.label.toLowerCase()}, día ${age + 1}${lastWatering ? `, último riego ${lastWateringLabel}` : ''}`;
+    const estimateBadge = estimate.supported ? `<small class="cell-germination-estimate" title="${escapeHTML(estimate.detail)}">${escapeHTML(estimate.label)}</small>` : '';
+    const label = `Celda ${index + 1}: ${seed}, ${stage.label.toLowerCase()}, día ${age + 1}${estimate.supported ? `, ${estimate.detail}` : ''}${lastWatering ? `, último riego ${lastWateringLabel}` : ''}`;
     const cellLabel = `${label}${moving ? (movingSource ? ', origen seleccionado' : moveSourceIndex === null ? ', toca para seleccionar como origen' : ', destino ocupado') : multiSelecting ? (selected ? ', seleccionada' : ', toca para seleccionar') : ''}`;
-    return `<button class="tray-cell sown${stateClass}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected || movingSource}" title="${escapeHTML(cellLabel)}" aria-label="${escapeHTML(cellLabel)}"><span class="cell-icon-box">${visual}${seedIndicator}</span><small>${escapeHTML(seed)}</small>${waterBadge}</button>`;
+    return `<button class="tray-cell sown${stateClass}" type="button" data-tray-id="${escapeHTML(tray.id)}" data-cell-index="${index}" aria-pressed="${selected || movingSource}" title="${escapeHTML(cellLabel)}" aria-label="${escapeHTML(cellLabel)}"><span class="cell-icon-box">${visual}${seedIndicator}</span><small>${escapeHTML(seed)}</small>${estimateBadge}${waterBadge}</button>`;
   }).join('');
   const selectedCount = selectedCells.size;
   const selectedPlantedCount = [...selectedCells].filter(index => tray.cellSeeds[index]).length;

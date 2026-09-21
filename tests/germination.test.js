@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, inferPlantIcon, moveCell, normalizeTray, renderTray, resizeTray, stageFor, trayPlantingAgeLabel, TRAY_STORAGE_KEY, waterCells, wateringAgeLabel,
+  assignSeedsToCells, cellGrowthStage, createTrayRepository, daysSince, germinationEstimate, inferPlantIcon, moveCell, normalizeTray, renderTray, resizeTray, stageFor, trayPlantingAgeLabel, TRAY_STORAGE_KEY, waterCells, wateringAgeLabel,
 } from '../germination.js';
 import { resolveDestination } from '../navigation.js';
 import { ACTIVITY_STORAGE_KEY, createActivityRepository } from '../actors.js';
@@ -213,6 +213,30 @@ test('growth age uses calendar days and clamps future dates', () => {
   assert.equal(cellGrowthStage(3).key, 'sprout');
   assert.equal(cellGrowthStage(8).key, 'plant');
   assert.equal(cellGrowthStage(18).label, 'LISTA PARA TRASPLANTE');
+});
+
+test('estimates species-specific germination countdown and shows overruns', () => {
+  const now = new Date(2026, 8, 21, 12);
+  const tomato = germinationEstimate('Tomate Cherry', '2026-09-15', now);
+  assert.equal(tomato.name, 'Tomate');
+  assert.equal(tomato.min, 6);
+  assert.equal(tomato.max, 12);
+  assert.equal(tomato.average, 9);
+  assert.equal(tomato.remaining, 3);
+  assert.match(tomato.label, /prom\. en 3 d/);
+  assert.match(tomato.source, /extension\.iastate\.edu/);
+
+  const mint = germinationEstimate('Menta', '2026-09-06', now);
+  assert.equal(mint.name, 'Menta');
+  assert.equal(mint.source, 'https://ucanr.edu/node/125167/printable/print');
+
+  const overdue = germinationEstimate('Tomate', '2026-09-05', now);
+  assert.match(overdue.label, /\+4 d sobre rango/);
+  assert.equal(germinationEstimate('Flor desconocida', '2026-09-20', now).supported, false);
+
+  const tray = normalizeTray({ ...sample, size: '1×2', capacity: 2, seeded: 0, cellSeeds: ['Tomate Cherry', null] });
+  assert.match(renderTray(tray, { now }), /cell-germination-estimate/);
+  assert.match(renderTray(tray, { now }), /rango 6–12 d/);
 });
 
 test('navigation resolves accented and unaccented germination labels', () => {
